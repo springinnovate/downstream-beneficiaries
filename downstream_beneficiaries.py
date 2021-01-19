@@ -172,7 +172,7 @@ def main(watershed_id=None):
 
     task_graph.add_task(
         func=gdal.BuildVRT,
-        args=(dem_vrt_path, dem_tile_raster_list),
+        args=(os.path.basename(dem_vrt_path), dem_tile_raster_list),
         target_path_list=[dem_vrt_path],
         dependent_task_list=[download_dem_task],
         task_name='build dem vrt')
