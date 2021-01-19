@@ -166,9 +166,13 @@ def main(watershed_id=None):
         f'{os.path.basename(os.path.splitext(DEM_ZIP_URL)[0])}.vrt')
     LOGGER.debug(f'build vrt to {dem_vrt_path}')
 
+    dem_tile_raster_list = [
+        gdal.Open(path, gdal.OF_RASTER)
+        for path in glob.glob(os.path.join(dem_tile_dir, '*.tif'))]
+
     task_graph.add_task(
         func=gdal.BuildVRT,
-        args=(dem_vrt_path, glob.glob(os.path.join(dem_tile_dir, '*.tif'))),
+        args=(dem_vrt_path, dem_tile_raster_list),
         target_path_list=[dem_vrt_path],
         dependent_task_list=[download_dem_task],
         task_name='build dem vrt')
