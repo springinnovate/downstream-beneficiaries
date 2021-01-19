@@ -109,10 +109,11 @@ def process_watershed(
     target_pixel_bb = pygeoprocessing.transform_bounding_box(
         dem_pixel_bb, dem_info['projection_wkt'], epsg_sr.ExportToWkt())
     # x increases, y decreases
-    target_pixel_size = [
-        target_pixel_bb[2]-target_pixel_bb[0],
-        target_pixel_bb[1]-target_pixel_bb[3],
-        ]
+    # make sure we take the smallest side so our dem pixels are square
+    target_pixel_side = min(
+        abs(target_pixel_bb[2]-target_pixel_bb[0]),
+        abs(target_pixel_bb[3]-target_pixel_bb[1]))
+    target_pixel_size = (target_pixel_side, -target_pixel_side)
 
     warped_dem_raster_path = os.path.join(working_dir, f'{job_id}_dem.tif')
     pygeoprocessing.warp_raster(
