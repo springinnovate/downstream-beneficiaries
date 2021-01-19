@@ -17,7 +17,7 @@ import taskgraph
 
 logging.basicConfig(
     level=logging.DEBUG,
-    filename='log.txt',
+#    filename='log.txt',
     format=(
         '%(asctime)s (%(relativeCreated)d) %(processName)s %(levelname)s '
         '%(name)s [%(funcName)s:%(lineno)d] %(message)s'))
@@ -213,4 +213,4 @@ if __name__ == '__main__':
         '--watershed_id', help='if present only run on this watershed id')
     args = parser.parse_args()
 
-    main(**args)
+    main(watershed_id=args.watershed_id)
