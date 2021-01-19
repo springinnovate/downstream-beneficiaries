@@ -83,8 +83,10 @@ def process_watershed(
 
     watershed_envelope = watershed_geom.GetEnvelope()
     LOGGER.debug(f'watershed_envelope: {watershed_envelope}')
+    # swizzle the envelope order that by default is xmin/xmax/ymin/ymax
     target_watershed_bb = pygeoprocessing.transform_bounding_box(
-        watershed_envelope, watershed_info['projection_wkt'],
+        [watershed_envelope[i] for i in [0, 2, 1, 3]],
+        watershed_info['projection_wkt'],
         epsg_sr.ExportToWkt())
 
     watershed_vector = None
