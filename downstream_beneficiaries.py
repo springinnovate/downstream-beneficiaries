@@ -160,15 +160,15 @@ def main(watershed_id=None):
         args=(DEM_ZIP_URL, dem_download_dir),
         task_name='download and unzip dem')
 
+    dem_tile_dir = os.path.join(dem_download_dir, 'global_dem_3s')
     dem_vrt_path = os.path.join(
-        dem_download_dir,
+        dem_tile_dir,
         f'{os.path.basename(os.path.splitext(DEM_ZIP_URL)[0])}.vrt')
     LOGGER.debug(f'build vrt to {dem_vrt_path}')
 
     task_graph.add_task(
         func=gdal.BuildVRT,
-        args=(dem_vrt_path, glob.glob(
-                os.path.join(dem_download_dir, 'global_dem_3s', '*.tif'))),
+        args=(dem_vrt_path, glob.glob(os.path.join(dem_tile_dir, '*.tif'))),
         target_path_list=[dem_vrt_path],
         dependent_task_list=[download_dem_task],
         task_name='build dem vrt')
