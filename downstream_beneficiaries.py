@@ -160,7 +160,7 @@ def main(watershed_id=None):
 
     dem_vrt_path = os.path.join(
         dem_download_dir,
-        f'{os.path.basename(os.path.splitext(DEM_ZIP_URL))}.vrt')
+        f'{os.path.basename(os.path.splitext(DEM_ZIP_URL)[0])}.vrt')
 
     task_graph.add_task(
         func=gdal.BuildVRT,
