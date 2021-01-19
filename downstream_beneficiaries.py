@@ -15,6 +15,8 @@ import ecoshard
 import pygeoprocessing
 import taskgraph
 
+gdal.UseExceptions()
+
 logging.basicConfig(
     level=logging.DEBUG,
 #    filename='log.txt',
