@@ -4,6 +4,7 @@ Design:
 
 """
 import argparse
+import glob
 import logging
 import math
 import os
@@ -50,7 +51,7 @@ def process_watershed(
             beneficiary rasters to create, parallel with
             `pop_raster_path_list`.
 
-    Returns:
+    Return:
         None.
     """
     job_id = f'''{os.path.basename(
