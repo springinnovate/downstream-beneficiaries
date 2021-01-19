@@ -201,7 +201,7 @@ def main(watershed_id=None):
             watershed_root_dir, f'{watershed_basename}.shp')
 
         process_watershed(
-            watershed_path, watershed_fid, dem_vrt_path,
+            watershed_path, int(watershed_fid), dem_vrt_path,
             pop_raster_path_map['2000'],
             f'''downstream_benficiaries_{watershed_basename}_{
                 watershed_fid}.tif''')
