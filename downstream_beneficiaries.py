@@ -39,6 +39,42 @@ POPULATION_RASTER_URL_MAP = {
 WORKSPACE_DIR = 'workspace'
 
 
+def _create_outlet_raster(
+        outlet_vector_path, base_raster_path, target_outlet_raster_path):
+    """Create a raster that has 1s where outlet exists and 0 everywhere else.
+
+    Args:
+        outlet_vector_path (str): path to input vector that has 'i', 'j'
+            fields indicating which pixels are outlets
+        base_raster_path (str): path to base raster used to create
+            outlet raster shape/projection.
+        target_outlet_raster_path (str): created by this call, contains 0s
+            except where pixels intersect with an outlet.
+
+    Return:
+        None.
+    """
+    pygeoprocessing.new_raster_from_base(
+        base_raster_path, target_outlet_raster_path, gdal.GDT_Byte,
+        [0])
+
+    outlet_raster = gdal.OpenEx(
+        target_outlet_raster_path, gdal.OF_RASTER | gdal.GA_Update)
+    outlet_band = outlet_raster.GetRasterBand(1)
+
+    outlet_vector = gdal.OpenEx(outlet_vector_path, gdal.OF_VECTOR)
+    outlet_layer = outlet_vector.GetLayer()
+
+    for outlet_feature in outlet_layer:
+        outlet_band.WriteArray(
+            [1],
+            outlet_feature.GetField('i'),
+            outlet_feature.GetField('j'),
+            1, 1)
+    outlet_band = None
+    outlet_raster = None
+
+
 def process_watershed(
         watershed_vector_path, watershed_fid, dem_path, pop_raster_path_list,
         target_beneficiaries_path_list):
@@ -138,6 +174,14 @@ def process_watershed(
         (filled_dem_raster_path, 1), flow_dir_d8_raster_path,
         working_dir=working_dir)
 
+    outlet_vector_path = os.path.join(working_dir, 'outlet_vector.gpkg')
+    pygeoprocessing.routing.detect_outlets(
+        (flow_dir_d8_raster_path, 1), outlet_vector_path)
+
+    outlet_raster_path = os.path.join(working_dir, 'outlet_raster.tif')
+    _create_outlet_raster(
+        outlet_vector_path, flow_dir_d8_raster_path, outlet_raster_path)
+
     for pop_raster_path, target_beneficiaries_path in zip(
             pop_raster_path_list, target_beneficiaries_path_list):
         LOGGER.debug(
@@ -157,10 +201,10 @@ def process_watershed(
                 'mask_vector_where_filter': f'"FID"={watershed_fid}'},
             working_dir=working_dir)
 
-        # pygeoprocessing.distance_to_channel_d8(
-        #     (flow_dir_d8_raster_path, 1), (outlet_raster_path, 1),
-        #     target_beneficiaries_path,
-        #     weight_raster_path_band=(pop_raster_path, 1))
+        pygeoprocessing.distance_to_channel_d8(
+            (flow_dir_d8_raster_path, 1), (outlet_raster_path, 1),
+            target_beneficiaries_path,
+            weight_raster_path_band=(pop_raster_path, 1))
 
 
 def main(watershed_id=None):
@@ -253,3 +297,4 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     main(watershed_id=args.watershed_id)
+
