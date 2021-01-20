@@ -169,7 +169,7 @@ def process_watershed(
             'gdal_warp_options': None,
             'working_dir': working_dir},
         target_path_list=[warped_dem_raster_path],
-        task_id=f'clip and warp dem to {warped_dem_raster_path}')
+        task_name=f'clip and warp dem to {warped_dem_raster_path}')
 
     LOGGER.debug('route dem')
     filled_dem_raster_path = os.path.join(
@@ -181,7 +181,7 @@ def process_watershed(
         kwargs={'working_dir': working_dir},
         dependent_task_list=[warp_dem_task],
         target_path_list=[filled_dem_raster_path],
-        task_id=f'fill dem pits to {filled_dem_raster_path}')
+        task_name=f'fill dem pits to {filled_dem_raster_path}')
 
     flow_dir_d8_raster_path = os.path.join(
         working_dir, f'{job_id}_flow_dir_d8.tif')
@@ -192,7 +192,7 @@ def process_watershed(
         kwargs={'working_dir': working_dir},
         dependent_task_list=[fill_pits_task],
         target_path_list=[flow_dir_d8_raster_path],
-        task_id=f'calc flow dir for {flow_dir_d8_raster_path}')
+        task_name=f'calc flow dir for {flow_dir_d8_raster_path}')
 
     outlet_vector_path = os.path.join(
         working_dir, f'{job_id}_outlet_vector.gpkg')
@@ -201,7 +201,7 @@ def process_watershed(
         args=((flow_dir_d8_raster_path, 1), outlet_vector_path),
         dependent_task_list=[flow_dir_d8_task],
         target_path_list=[outlet_vector_path],
-        task_id=f'detect outlets {outlet_vector_path}')
+        task_name=f'detect outlets {outlet_vector_path}')
 
     outlet_raster_path = os.path.join(
         working_dir, f'{job_id}_outlet_raster.tif')
@@ -211,7 +211,7 @@ def process_watershed(
             outlet_vector_path, flow_dir_d8_raster_path, outlet_raster_path),
         dependent_task_list=[detect_outlets_task],
         target_path_list=[outlet_raster_path],
-        task_id=f'create outlet raster {outlet_raster_path}')
+        task_name=f'create outlet raster {outlet_raster_path}')
 
     for pop_raster_path, target_beneficiaries_path in zip(
             pop_raster_path_list, target_beneficiaries_path_list):
@@ -248,7 +248,7 @@ def process_watershed(
                 'weight_raster_path_band': (aligned_pop_raster_path, 1)},
             dependent_task_list=[
                 pop_warp_task, create_outlet_raster_task, flow_dir_d8_task],
-            task_id=(
+            task_name=(
                 'calc downstream beneficiaries for '
                 f'{target_beneficiaries_path}'))
 
