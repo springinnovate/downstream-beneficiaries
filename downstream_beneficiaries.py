@@ -71,8 +71,7 @@ def _create_outlet_raster(
         outlet_band.WriteArray(
             one_array,
             outlet_feature.GetField('i'),
-            outlet_feature.GetField('j'),
-            1, 1)
+            outlet_feature.GetField('j'))
     outlet_band = None
     outlet_raster = None
 
