@@ -13,6 +13,7 @@ from osgeo import gdal
 from osgeo import osr
 import ecoshard
 import pygeoprocessing
+import pygeoprocessing.routing
 import taskgraph
 
 gdal.UseExceptions()
