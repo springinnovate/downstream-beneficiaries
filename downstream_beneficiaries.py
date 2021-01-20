@@ -12,6 +12,7 @@ import subprocess
 from osgeo import gdal
 from osgeo import osr
 import ecoshard
+import numpy
 import pygeoprocessing
 import pygeoprocessing.routing
 import taskgraph
@@ -65,9 +66,10 @@ def _create_outlet_raster(
     outlet_vector = gdal.OpenEx(outlet_vector_path, gdal.OF_VECTOR)
     outlet_layer = outlet_vector.GetLayer()
 
+    one_array = numpy.ones((1, 1), dtype=numpy.int8)
     for outlet_feature in outlet_layer:
         outlet_band.WriteArray(
-            [1],
+            one_array,
             outlet_feature.GetField('i'),
             outlet_feature.GetField('j'),
             1, 1)
