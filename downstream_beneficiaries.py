@@ -235,9 +235,12 @@ def main(watershed_id=None):
 
         process_watershed(
             watershed_path, int(watershed_fid), dem_vrt_path,
-            pop_raster_path_map['2000'],
-            f'''downstream_benficiaries_{watershed_basename}_{
-                watershed_fid}.tif''')
+            [pop_raster_path_map['2000'],
+             pop_raster_path_map['2017']],
+            [f'''downstream_benficiaries_2000_{watershed_basename}_{
+                 watershed_fid}.tif''',
+             f'''downstream_benficiaries_2017_{watershed_basename}_{
+                 watershed_fid}.tif'''])
 
     task_graph.join()
     task_graph.close()
