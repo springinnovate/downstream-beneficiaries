@@ -104,6 +104,8 @@ def process_watershed(
     except OSError:
         LOGGER.warning(f'{working_dir} already exists')
 
+    task_graph = taskgraph.TaskGraph(working_dir, -1)
+
     LOGGER.info(f'clip/reproject DEM for {job_id}')
     watershed_info = pygeoprocessing.get_vector_info(watershed_vector_path)
     watershed_vector = gdal.OpenEx(watershed_vector_path, gdal.OF_VECTOR)
@@ -154,34 +156,62 @@ def process_watershed(
     target_pixel_size = (target_pixel_side, -target_pixel_side)
 
     warped_dem_raster_path = os.path.join(working_dir, f'{job_id}_dem.tif')
-    pygeoprocessing.warp_raster(
-        dem_path, target_pixel_size, warped_dem_raster_path,
-        'near', target_bb=target_watershed_bb,
-        target_projection_wkt=epsg_sr.ExportToWkt(),
-        vector_mask_options={
-            'mask_vector_path': watershed_vector_path,
-            'mask_vector_where_filter': f'"FID"={watershed_fid}'},
-        gdal_warp_options=None, working_dir=working_dir)
+    warp_dem_task = task_graph.add_task(
+        func=pygeoprocessing.warp_raster,
+        args=(
+            dem_path, target_pixel_size, warped_dem_raster_path, 'near'),
+        kwargs={
+            'target_bb': target_watershed_bb,
+            'target_projection_wkt': epsg_sr.ExportToWkt(),
+            'vector_mask_options': {
+                'mask_vector_path': watershed_vector_path,
+                'mask_vector_where_filter': f'"FID"={watershed_fid}'},
+            'gdal_warp_options': None,
+            'working_dir': working_dir},
+        target_path_list=[warped_dem_raster_path],
+        task_id=f'clip and warp dem to {warped_dem_raster_path}')
 
     LOGGER.debug('route dem')
     filled_dem_raster_path = os.path.join(
         working_dir, f'{job_id}_filled_dem.tif')
-    pygeoprocessing.routing.fill_pits(
-        (warped_dem_raster_path, 1), filled_dem_raster_path,
-        working_dir=working_dir)
+    fill_pits_task = task_graph.add_task(
+        func=pygeoprocessing.routing.fill_pits,
+        args=(
+            (warped_dem_raster_path, 1), filled_dem_raster_path),
+        kwargs={'working_dir': working_dir},
+        dependent_task_list=[warp_dem_task],
+        target_path_list=[filled_dem_raster_path],
+        task_id=f'fill dem pits to {filled_dem_raster_path}')
+
     flow_dir_d8_raster_path = os.path.join(
         working_dir, f'{job_id}_flow_dir_d8.tif')
-    pygeoprocessing.routing.flow_dir_d8(
-        (filled_dem_raster_path, 1), flow_dir_d8_raster_path,
-        working_dir=working_dir)
+    flow_dir_d8_task = task_graph.add_task(
+        func=pygeoprocessing.routing.flow_dir_d8,
+        args=(
+            (filled_dem_raster_path, 1), flow_dir_d8_raster_path),
+        kwargs={'working_dir': working_dir},
+        dependent_task_list=[fill_pits_task],
+        target_path_list=[flow_dir_d8_raster_path],
+        task_id=f'calc flow dir for {flow_dir_d8_raster_path}')
 
-    outlet_vector_path = os.path.join(working_dir, 'outlet_vector.gpkg')
-    pygeoprocessing.routing.detect_outlets(
-        (flow_dir_d8_raster_path, 1), outlet_vector_path)
+    outlet_vector_path = os.path.join(
+        working_dir, f'{job_id}_outlet_vector.gpkg')
+    detect_outlets_task = task_graph.add_task(
+        func=pygeoprocessing.routing.detect_outlets,
+        args=((flow_dir_d8_raster_path, 1), outlet_vector_path),
+        dependent_task_list=[flow_dir_d8_task],
+        target_path_list=[outlet_vector_path],
+        task_id=f'detect outlets {outlet_vector_path}')
 
-    outlet_raster_path = os.path.join(working_dir, 'outlet_raster.tif')
-    _create_outlet_raster(
-        outlet_vector_path, flow_dir_d8_raster_path, outlet_raster_path)
+    outlet_raster_path = os.path.join(
+        working_dir, f'{job_id}_outlet_raster.tif')
+    create_outlet_raster_task = task_graph.add_task(
+        func=_create_outlet_raster,
+        args=(
+            outlet_vector_path, flow_dir_d8_raster_path, outlet_raster_path),
+        dependent_task_list=[detect_outlets_task],
+        target_path_list=[outlet_raster_path],
+        task_id=f'create outlet raster {outlet_raster_path}')
 
     for pop_raster_path, target_beneficiaries_path in zip(
             pop_raster_path_list, target_beneficiaries_path_list):
@@ -194,26 +224,40 @@ def process_watershed(
             f'''{job_id}_{os.path.basename(
                 os.path.splitext(pop_raster_path)[0])}.tif''')
 
-        pygeoprocessing.warp_raster(
-            pop_raster_path, target_pixel_size, aligned_pop_raster_path,
-            'near', target_bb=target_watershed_bb,
-            target_projection_wkt=epsg_sr.ExportToWkt(),
-            vector_mask_options={
-                'mask_vector_path': watershed_vector_path,
-                'mask_vector_where_filter': f'"FID"={watershed_fid}'},
-            working_dir=working_dir)
+        pop_warp_task = task_graph.add_task(
+            func=pygeoprocessing.warp_raster,
+            args=(
+                pop_raster_path, target_pixel_size, aligned_pop_raster_path,
+                'near'),
+            kwargs={
+                'target_bb': target_watershed_bb,
+                'target_projection_wkt': epsg_sr.ExportToWkt(),
+                'vector_mask_options': {
+                    'mask_vector_path': watershed_vector_path,
+                    'mask_vector_where_filter': f'"FID"={watershed_fid}'},
+                'working_dir': working_dir},
+            target_path_list=[aligned_pop_raster_path],
+            task_name=f'align {aligned_pop_raster_path}')
 
-        pygeoprocessing.routing.distance_to_channel_d8(
-            (flow_dir_d8_raster_path, 1), (outlet_raster_path, 1),
-            target_beneficiaries_path,
-            weight_raster_path_band=(aligned_pop_raster_path, 1))
+        downstream_bene_task = task_graph.add_task(
+            func=pygeoprocessing.routing.distance_to_channel_d8,
+            args=(
+                (flow_dir_d8_raster_path, 1), (outlet_raster_path, 1),
+                target_beneficiaries_path),
+            kwargs={
+                'weight_raster_path_band': (aligned_pop_raster_path, 1)},
+            dependent_task_list=[
+                pop_warp_task, create_outlet_raster_task, flow_dir_d8_task],
+            task_id=(
+                'calc downstream beneficiaries for '
+                f'{target_beneficiaries_path}'))
 
-
-def main(watershed_id=None):
+def main(watershed_ids=None):
     """Entry point.
 
     Args:
-        watershed_id (int?): if present, only run analysis on this watershed.
+        watershed_ids (list): if present, only run analysis on the list
+            of 'watershed,fid' strings in this list.
 
     Return:
         None.
@@ -274,19 +318,20 @@ def main(watershed_id=None):
     watershed_root_dir = os.path.join(
         watershed_download_dir, 'watersheds_globe_HydroSHEDS_15arcseconds')
 
-    if watershed_id:
-        watershed_basename, watershed_fid = watershed_id.split(',')
-        watershed_path = os.path.join(
-            watershed_root_dir, f'{watershed_basename}.shp')
+    if watershed_ids:
+        for watershed_id in watershed_ids:
+            watershed_basename, watershed_fid = watershed_id.split(',')
+            watershed_path = os.path.join(
+                watershed_root_dir, f'{watershed_basename}.shp')
 
-        process_watershed(
-            watershed_path, int(watershed_fid), dem_vrt_path,
-            [pop_raster_path_map['2000'],
-             pop_raster_path_map['2017']],
-            [f'''downstream_benficiaries_2000_{watershed_basename}_{
-                 watershed_fid}.tif''',
-             f'''downstream_benficiaries_2017_{watershed_basename}_{
-                 watershed_fid}.tif'''])
+            process_watershed(
+                watershed_path, int(watershed_fid), dem_vrt_path,
+                [pop_raster_path_map['2000'],
+                 pop_raster_path_map['2017']],
+                [f'''downstream_benficiaries_2000_{watershed_basename}_{
+                     watershed_fid}.tif''',
+                 f'''downstream_benficiaries_2017_{watershed_basename}_{
+                     watershed_fid}.tif'''])
 
     task_graph.join()
     task_graph.close()
@@ -295,8 +340,9 @@ def main(watershed_id=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Downstream beneficiaries')
     parser.add_argument(
-        '--watershed_id', help='if present only run on this watershed id')
+        '--watershed_ids', nargs='+',
+        help='if present only run on this watershed id')
     args = parser.parse_args()
 
-    main(watershed_id=args.watershed_id)
+    main(watershed_ids=args.watershed_ids)
 
