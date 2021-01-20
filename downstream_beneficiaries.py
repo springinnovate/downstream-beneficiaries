@@ -202,7 +202,7 @@ def process_watershed(
                 'mask_vector_where_filter': f'"FID"={watershed_fid}'},
             working_dir=working_dir)
 
-        pygeoprocessing.distance_to_channel_d8(
+        pygeoprocessing.routing.distance_to_channel_d8(
             (flow_dir_d8_raster_path, 1), (outlet_raster_path, 1),
             target_beneficiaries_path,
             weight_raster_path_band=(pop_raster_path, 1))
