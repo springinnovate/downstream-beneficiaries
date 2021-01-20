@@ -191,7 +191,8 @@ def process_watershed(
 
         aligned_pop_raster_path = os.path.join(
             working_dir,
-            f'{job_id}_{os.path.basename(os.path.splitext(pop_raster_path)[0])}.tif')
+            f'{job_id}_{os.path.basename(
+                os.path.splitext(pop_raster_path)[0])}.tif')
 
         pygeoprocessing.warp_raster(
             pop_raster_path, target_pixel_size, aligned_pop_raster_path,
@@ -205,7 +206,7 @@ def process_watershed(
         pygeoprocessing.routing.distance_to_channel_d8(
             (flow_dir_d8_raster_path, 1), (outlet_raster_path, 1),
             target_beneficiaries_path,
-            weight_raster_path_band=(pop_raster_path, 1))
+            weight_raster_path_band=(aligned_pop_raster_path, 1))
 
 
 def main(watershed_id=None):
