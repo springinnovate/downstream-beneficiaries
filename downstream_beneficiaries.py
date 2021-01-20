@@ -191,8 +191,8 @@ def process_watershed(
 
         aligned_pop_raster_path = os.path.join(
             working_dir,
-            f'{job_id}_{os.path.basename(
-                os.path.splitext(pop_raster_path)[0])}.tif')
+            f'''{job_id}_{os.path.basename(
+                os.path.splitext(pop_raster_path)[0])}.tif''')
 
         pygeoprocessing.warp_raster(
             pop_raster_path, target_pixel_size, aligned_pop_raster_path,
