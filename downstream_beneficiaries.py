@@ -126,11 +126,40 @@ def process_watershed(
         gdal_warp_options=None, working_dir=working_dir)
 
     LOGGER.debug('route dem')
+    filled_dem_raster_path = os.path.join(
+        working_dir, f'{job_id}_filled_dem.tif')
+    pygeoprocessing.routing.fill_pits(
+        (warped_dem_raster_path, 1), filled_dem_raster_path,
+        working_dir=working_dir)
+    flow_dir_d8_raster_path = os.path.join(
+        working_dir, f'{job_id}_flow_dir_d8.tif')
+    pygeoprocessing.routing.flow_dir_d8(
+        (filled_dem_raster_path, 1), flow_dir_d8_raster_path,
+        working_dir=working_dir)
+
     for pop_raster_path, target_beneficiaries_path in zip(
             pop_raster_path_list, target_beneficiaries_path_list):
         LOGGER.debug(
             f'route downstream beneficiaries to '
             f'{target_beneficiaries_path_list}')
+
+        aligned_pop_raster_path = os.path.join(
+            working_dir,
+            f'{job_id}_{os.path.basename(os.path.splitext(pop_raster_path)[0])}.tif')
+
+        pygeoprocessing.warp_raster(
+            pop_raster_path, target_pixel_size, aligned_pop_raster_path,
+            'near', target_bb=target_watershed_bb,
+            target_projection_wkt=epsg_sr.ExportToWkt(),
+            vector_mask_options={
+                'mask_vector_path': watershed_vector_path,
+                'mask_vector_where_filter': f'"FID"={watershed_fid}'},
+            working_dir=working_dir)
+
+        # pygeoprocessing.distance_to_channel_d8(
+        #     (flow_dir_d8_raster_path, 1), (outlet_raster_path, 1),
+        #     target_beneficiaries_path,
+        #     weight_raster_path_band=(pop_raster_path, 1))
 
 
 def main(watershed_id=None):
