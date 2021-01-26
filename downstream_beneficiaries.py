@@ -451,7 +451,7 @@ def main(watershed_ids=None):
                  f'''downstream_benficiaries_2017_{watershed_basename}_{
                      watershed_fid}.tif'''],
                 [stitch_raster_path_map['2000'],
-                 stitch_raster_path_map['2017']]
+                 stitch_raster_path_map['2017']],
                 stitch_lock_list,
                 completed_job_set,
                 work_db_path,
@@ -476,7 +476,7 @@ def main(watershed_ids=None):
                      f'''downstream_benficiaries_2017_{watershed_basename}_{
                          watershed_fid}.tif'''],
                     [stitch_raster_path_map['2000'],
-                     stitch_raster_path_map['2017']]
+                     stitch_raster_path_map['2017']],
                     stitch_lock_list,
                     completed_job_set,
                     work_db_path,
