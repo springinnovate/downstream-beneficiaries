@@ -8,6 +8,7 @@ import glob
 import logging
 import math
 import os
+import pathlib
 import shutil
 import sqlite3
 import subprocess
