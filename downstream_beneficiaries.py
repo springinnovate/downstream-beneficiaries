@@ -4,9 +4,11 @@ Design:
 
 """
 import argparse
+import glob
 import logging
 import math
 import os
+import shutil
 import subprocess
 
 from osgeo import gdal
@@ -78,7 +80,8 @@ def _create_outlet_raster(
 
 def process_watershed(
         watershed_vector_path, watershed_fid, dem_path, pop_raster_path_list,
-        target_beneficiaries_path_list):
+        target_beneficiaries_path_list, target_stitch_path_list,
+        target_stitch_lock_list, completed_job_set, work_db_path, db_lock):
     """Calculate downstream beneficiaries for this watershed.
 
     Args:
@@ -89,12 +92,25 @@ def process_watershed(
         target_beneficiaries_path_list (str): list of target downstream
             beneficiary rasters to create, parallel with
             `pop_raster_path_list`.
+        target_stitch_path_list (list): list of target stitch rasters to
+            stitch the result into
+        target_stitch_lock_list (list): list of locks to use when stitching
+            to the rasters in the parallel `target_stitch_path_list`.
+        completed_job_set (set): jobs that have been completed on previous
+            iterations are in this set.
+        work_db_path (str): path to an SQLite db that has 'job ids' for
+            completed watershed.
+        db_lock (lock): lock for the database to write to.
 
     Return:
         None.
     """
     job_id = f'''{os.path.basename(
         os.path.splitext(watershed_vector_path)[0])}_{watershed_fid}'''
+    # check if job_id is in the database as done, if so skip
+    if job_id in completed_job_set:
+        return
+
     LOGGER.debug(f'create working directory for {job_id}')
 
     working_dir = os.path.join(
@@ -213,8 +229,10 @@ def process_watershed(
         target_path_list=[outlet_raster_path],
         task_name=f'create outlet raster {outlet_raster_path}')
 
-    for pop_raster_path, target_beneficiaries_path in zip(
-            pop_raster_path_list, target_beneficiaries_path_list):
+    for (pop_raster_path, target_beneficiaries_path,
+         target_stitch_path, target_stitch_lock) in zip(
+            pop_raster_path_list, target_beneficiaries_path_list,
+            target_stitch_path_list, target_stitch_lock_list):
         LOGGER.debug(
             f'route downstream beneficiaries to '
             f'{target_beneficiaries_path_list}')
@@ -248,9 +266,79 @@ def process_watershed(
                 'weight_raster_path_band': (aligned_pop_raster_path, 1)},
             dependent_task_list=[
                 pop_warp_task, create_outlet_raster_task, flow_dir_d8_task],
+            target_path_list=[target_beneficiaries_path],
             task_name=(
                 'calc downstream beneficiaries for '
                 f'{target_beneficiaries_path}'))
+
+        downstream_bene_task.join()
+        with target_stitch_lock:
+            # stitch pop_raster_path into target stitch
+            pygeoprocessing.stitch_rasters(
+                [(target_beneficiaries_path, 1)], ['near'],
+                target_stitch_path)
+            # rm the target_beneficiaries_path
+            os.remove(target_beneficiaries_path)
+
+    task_graph.close()
+    task_graph.join()
+    task_graph = None
+    shutil.rmtree(working_dir)
+    # make entry in database that everything is complete
+    with db_lock:
+        record_job_id_complete(work_db_path, job_id)
+
+
+def get_completed_job_id_set(db_path):
+    """Return set of completed jobs, or initialize if not set."""
+    if not os.path.exists(db_path):
+        sql_create_projects_table_script = (
+            """
+            CREATE TABLE completed_job_ids (
+                job_id TEXT NOT NULL,
+                PRIMARY KEY (job_id)
+            );
+            """)
+        connection = sqlite3.connect(db_path)
+        cursor = connection.execute(
+            """
+            CREATE TABLE completed_job_ids (
+                job_id TEXT NOT NULL,
+                PRIMARY KEY (job_id)
+            );
+            """)
+        cursor.close()
+        connection.commit()
+        connection.close()
+        cursor = None
+        connection = None
+
+    ro_uri = r'%s?mode=ro' % pathlib.Path(
+        os.path.abspath(db_path)).as_uri()
+    connection = sqlite3.connect(ro_uri, uri=True)
+    cursor = connection.execute('''SELECT * FROM completed_job_ids''')
+    result = set(cursor.fetchall())
+    cursor.close()
+    connection.commit()
+    connection.close()
+    cursor = None
+    connection = None
+    return result
+
+
+def record_job_id_complete(db_path, job_id):
+    """Make an entry in the db that the job is complete."""
+    connection = sqlite3.connect(db_path)
+    cursor = connection.execute(
+        f"""
+        INSERT INTO completed_job_ids VALUES ("{job_id}")
+        """)
+    cursor.close()
+    connection.commit()
+    connection.close()
+    cursor = None
+    connection = None
+
 
 def main(watershed_ids=None):
     """Entry point.
@@ -271,6 +359,9 @@ def main(watershed_ids=None):
             WATERSHED_VECTOR_ZIP_URL)[0]))
     population_download_dir = os.path.join(
         WORKSPACE_DIR, 'population_rasters')
+
+    work_db_path = os.path.join(WORKSPACE_DIR, 'completed_fids.db')
+    completed_job_set = get_completed_job_id_set(work_db_path)
 
     for dir_path in [
             dem_download_dir, watershed_download_dir,
@@ -302,6 +393,7 @@ def main(watershed_ids=None):
         task_name='download and unzip watershed vector')
 
     pop_raster_path_map = {}
+    stitch_raster_path_map = {}
     for pop_id, pop_url in POPULATION_RASTER_URL_MAP.items():
         pop_raster_path = os.path.join(
             population_download_dir, os.path.basename(pop_url))
@@ -311,12 +403,38 @@ def main(watershed_ids=None):
             target_path_list=[pop_raster_path],
             task_name=f'download {pop_url}')
         pop_raster_path_map[pop_id] = pop_raster_path
+        stitch_raster_path_map[pop_id] = os.path.join(
+            WORKSPACE_DIR, f'global_stitch_{pop_id}.tif')
+
+        if not os.path.exists(stitch_raster_path_map[pop_id]):
+            driver = gdal.GetDriverByName('GTiff')
+            cell_size = 0.0003
+            target_raster = driver.Create(
+                stitch_raster_path_map[pop_id],
+                int(360/cell_size), int(180/cell_size), 1,
+                gdal.GDT_Float32,
+                options=(
+                    'TILED=YES', 'BIGTIFF=YES', 'COMPRESS=LZW',
+                    'SPARSE_OK=TRUE', 'BLOCKXSIZE=256', 'BLOCKYSIZE=256'))
+            wgs84_srs = osr.SpatialReference()
+            wgs84_srs.ImportFromEPSG(4326)
+            target_raster.SetProjection(wgs84_srs.ExportToWkt())
+            target_raster.SetGeoTransform(
+                [-180, cell_size, 0, 90, 0, -cell_size])
+            target_band = target_raster.GetRasterBand(1)
+            target_band.SetNoDataValue(-9999)
+            target_raster = None
 
     LOGGER.info('wait for downloads to conclude')
     task_graph.join()
 
     watershed_root_dir = os.path.join(
         watershed_download_dir, 'watersheds_globe_HydroSHEDS_15arcseconds')
+
+    manager = multiprocessing.Manager()
+    stitch_lock_list = [
+        manager.Lock() for _ in range(len(stitch_raster_path_map))]
+    db_lock = manager.Lock()
 
     if watershed_ids:
         for watershed_id in watershed_ids:
@@ -331,7 +449,40 @@ def main(watershed_ids=None):
                 [f'''downstream_benficiaries_2000_{watershed_basename}_{
                      watershed_fid}.tif''',
                  f'''downstream_benficiaries_2017_{watershed_basename}_{
-                     watershed_fid}.tif'''])
+                     watershed_fid}.tif'''],
+                [stitch_raster_path_map['2000'],
+                 stitch_raster_path_map['2017']]
+                stitch_lock_list,
+                completed_job_set,
+                work_db_path,
+                db_lock)
+    else:
+        for watershed_path in glob.glob(
+                os.path.join(watershed_root_dir, '*.shp')):
+            watershed_vector = gdal.OpenEx(watershed_path, gdal.OF_VECTOR)
+            watershed_layer = watershed_vector.GetLayer()
+            watershed_fid_list = [
+                watershed_feature.GetFID()
+                for watershed_feature in watershed_layer]
+            watershed_layer = None
+            watershed_vector = None
+            for watershed_fid in watershed_fid_list:
+                process_watershed(
+                    watershed_path, watershed_fid, dem_vrt_path,
+                    [pop_raster_path_map['2000'],
+                     pop_raster_path_map['2017']],
+                    [f'''downstream_benficiaries_2000_{watershed_basename}_{
+                     watershed_fid}.tif''',
+                     f'''downstream_benficiaries_2017_{watershed_basename}_{
+                         watershed_fid}.tif'''],
+                    [stitch_raster_path_map['2000'],
+                     stitch_raster_path_map['2017']]
+                    stitch_lock_list,
+                    completed_job_set,
+                    work_db_path,
+                    db_lock)
+                break
+            break
 
     task_graph.join()
     task_graph.close()
@@ -345,4 +496,3 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     main(watershed_ids=args.watershed_ids)
-
