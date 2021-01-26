@@ -279,7 +279,7 @@ def process_watershed(
             # stitch pop_raster_path into target stitch
             pygeoprocessing.stitch_rasters(
                 [(target_beneficiaries_path, 1)], ['near'],
-                target_stitch_path)
+                (target_stitch_path, 1))
             # rm the target_beneficiaries_path
             os.remove(target_beneficiaries_path)
 
