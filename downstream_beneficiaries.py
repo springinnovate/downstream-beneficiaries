@@ -443,20 +443,23 @@ def main(watershed_ids=None):
             watershed_path = os.path.join(
                 watershed_root_dir, f'{watershed_basename}.shp')
 
-            process_watershed(
-                watershed_path, int(watershed_fid), dem_vrt_path,
-                [pop_raster_path_map['2000'],
-                 pop_raster_path_map['2017']],
-                [f'''downstream_benficiaries_2000_{watershed_basename}_{
-                     watershed_fid}.tif''',
-                 f'''downstream_benficiaries_2017_{watershed_basename}_{
-                     watershed_fid}.tif'''],
-                [stitch_raster_path_map['2000'],
-                 stitch_raster_path_map['2017']],
-                stitch_lock_list,
-                completed_job_set,
-                work_db_path,
-                db_lock)
+            task_graph.add_task(
+                func=process_watershed,
+                args=(
+                    watershed_path, int(watershed_fid), dem_vrt_path,
+                    [pop_raster_path_map['2000'],
+                     pop_raster_path_map['2017']],
+                    [f'''downstream_benficiaries_2000_{watershed_basename}_{
+                         watershed_fid}.tif''',
+                     f'''downstream_benficiaries_2017_{watershed_basename}_{
+                         watershed_fid}.tif'''],
+                    [stitch_raster_path_map['2000'],
+                     stitch_raster_path_map['2017']],
+                    stitch_lock_list,
+                    completed_job_set,
+                    work_db_path,
+                    db_lock),
+                task_name=f'process {watershed_basename}_{watershed_fid}')
     else:
         for watershed_path in glob.glob(
                 os.path.join(watershed_root_dir, '*.shp')):
@@ -467,21 +470,27 @@ def main(watershed_ids=None):
                 for watershed_feature in watershed_layer]
             watershed_layer = None
             watershed_vector = None
+            watershed_basename = os.path.splitext(
+                os.path.basename(watershed_path))[0]
             for watershed_fid in watershed_fid_list:
-                process_watershed(
-                    watershed_path, watershed_fid, dem_vrt_path,
-                    [pop_raster_path_map['2000'],
-                     pop_raster_path_map['2017']],
-                    [f'''downstream_benficiaries_2000_{watershed_basename}_{
-                     watershed_fid}.tif''',
-                     f'''downstream_benficiaries_2017_{watershed_basename}_{
-                         watershed_fid}.tif'''],
-                    [stitch_raster_path_map['2000'],
-                     stitch_raster_path_map['2017']],
-                    stitch_lock_list,
-                    completed_job_set,
-                    work_db_path,
-                    db_lock)
+                task_graph.add_task(
+                    func=process_watershed,
+                    args=(
+                        watershed_path, watershed_fid, dem_vrt_path,
+                        [pop_raster_path_map['2000'],
+                         pop_raster_path_map['2017']],
+                        [f'''downstream_benficiaries_2000_{
+                            watershed_basename}_{watershed_fid}.tif''',
+                         f'''downstream_benficiaries_2017_{
+                            watershed_basename}_{watershed_fid}.tif'''],
+                        [stitch_raster_path_map['2000'],
+                         stitch_raster_path_map['2017']],
+                        stitch_lock_list,
+                        completed_job_set,
+                        work_db_path,
+                        db_lock),
+                    task_name=f'''process {
+                        watershed_basename}_{watershed_fid}''')
                 break
             break
 
