@@ -22,6 +22,8 @@ import pygeoprocessing
 import pygeoprocessing.routing
 import taskgraph
 
+gdal.SetCacheMax(2**27)
+
 logging.basicConfig(
     level=logging.DEBUG,
     format=(
