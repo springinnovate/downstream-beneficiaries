@@ -288,6 +288,7 @@ def process_watershed(
     # make entry in database that everything is complete
     with db_lock:
         record_job_id_complete(work_db_path, job_id)
+    LOGGER.info(f'done with {job_id}')
 
 
 def get_completed_job_id_set(db_path):
