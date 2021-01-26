@@ -493,8 +493,6 @@ def main(watershed_ids=None):
                         db_lock),
                     task_name=f'''process {
                         watershed_basename}_{watershed_fid}''')
-                break
-            break
 
     task_graph.join()
     task_graph.close()
