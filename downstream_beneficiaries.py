@@ -318,7 +318,7 @@ def get_completed_job_id_set(db_path):
         os.path.abspath(db_path)).as_uri()
     connection = sqlite3.connect(ro_uri, uri=True)
     cursor = connection.execute('''SELECT * FROM completed_job_ids''')
-    result = set(cursor.fetchall())
+    result = set([_[0] for _ in cursor.fetchall()])
     cursor.close()
     connection.commit()
     connection.close()
