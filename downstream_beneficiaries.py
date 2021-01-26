@@ -9,6 +9,7 @@ import logging
 import math
 import os
 import shutil
+import sqlite3
 import subprocess
 
 from osgeo import gdal
