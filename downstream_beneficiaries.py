@@ -500,7 +500,10 @@ def main(watershed_ids=None):
 
         if not os.path.exists(stitch_raster_path_map[pop_id]):
             driver = gdal.GetDriverByName('GTiff')
-            cell_size = 10./3600
+            cell_size = 10./3600.
+            n_cols = int(360./cell_size)
+            n_rows = int(180./cell_size)
+            LOGGER.info(f'**** creating raster of size {n_cols} by {n_rows}')
             target_raster = driver.Create(
                 stitch_raster_path_map[pop_id],
                 int(360/cell_size), int(180/cell_size), 1,
