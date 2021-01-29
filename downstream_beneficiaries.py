@@ -392,7 +392,7 @@ def main(watershed_ids=None):
     LOGGER.info(f'there are {len(completed_job_set)} completed jobs so far')
 
     LOGGER.info('start complete worker thread')
-    completed_work_queue = queue.Queue()
+    completed_work_queue = multiprocessing.Queue()
     job_complete_worker_thread = threading.Thread(
         target=job_complete_worker,
         args=(completed_work_queue, work_db_path))
