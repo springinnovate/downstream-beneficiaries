@@ -132,9 +132,10 @@ def _create_outlet_raster(
 
 
 def process_watershed(
-        job_id, watershed_vector_path, watershed_fid, dem_path, pop_raster_path_list,
-        target_beneficiaries_path_list, target_stitch_path_list,
-        target_stitch_lock_list, completed_work_queue):
+        job_id, watershed_vector_path, watershed_fid, dem_path,
+        pop_raster_path_list, target_beneficiaries_path_list,
+        target_stitch_path_list,
+        target_stitch_work_queue_list):
     """Calculate downstream beneficiaries for this watershed.
 
     Args:
@@ -149,12 +150,8 @@ def process_watershed(
             `pop_raster_path_list`.
         target_stitch_path_list (list): list of target stitch rasters to
             stitch the result into
-        target_stitch_lock_list (list): list of locks to use when stitching
-            to the rasters in the parallel `target_stitch_path_list`.
-        work_db_path (str): path to an SQLite db that has 'job ids' for
-            completed watershed.
-        completed_work_queue (queue): put completed work
-            (workspace_dir, job_id) to this queue.
+        target_stitch_work_queue_list (list): list of work queues to put done
+            signals in when each beneficiary raster is done.
 
     Return:
         None.
@@ -278,9 +275,9 @@ def process_watershed(
         task_name=f'create outlet raster {outlet_raster_path}')
 
     for (pop_raster_path, target_beneficiaries_path,
-         target_stitch_path, target_stitch_lock) in zip(
+         target_stitch_path, stitch_queue) in zip(
             pop_raster_path_list, target_beneficiaries_path_list,
-            target_stitch_path_list, target_stitch_lock_list):
+            target_stitch_path_list, target_stitch_work_queue_list):
         LOGGER.debug(
             f'route downstream beneficiaries to '
             f'{target_beneficiaries_path_list}')
@@ -320,19 +317,12 @@ def process_watershed(
                 f'{target_beneficiaries_path}'))
 
         downstream_bene_task.join()
-        with target_stitch_lock:
-            # stitch pop_raster_path into target stitch
-            pygeoprocessing.stitch_rasters(
-                [(target_beneficiaries_path, 1)], ['near'],
-                (target_stitch_path, 1))
-            # rm the target_beneficiaries_path
-            os.remove(target_beneficiaries_path)
+        stitch_queue.put(
+            (target_beneficiaries_path, working_dir, job_id))
 
     task_graph.close()
     task_graph.join()
     task_graph = None
-    # make entry in database that everything is complete
-    completed_work_queue.put((working_dir, job_id))
 
 
 def get_completed_job_id_set(db_path):
@@ -376,12 +366,17 @@ def job_complete_worker(completed_work_queue, work_db_path):
     """Update the database with completed work."""
     connection = sqlite3.connect(work_db_path)
     uncommited_count = 0
+    working_jobs = set()
     while True:
         payload = completed_work_queue.get()
         if payload is None:
             LOGGER.info('got None in completed work, terminating')
             break
         working_dir, job_id = payload
+        if job_id not in working_jobs:
+            working_jobs.add(job_id)
+            continue
+        working_jobs.remove(job_id)
         shutil.rmtree(working_dir)
         cursor = connection.execute(
             f"""
@@ -409,6 +404,25 @@ def general_worker(work_queue):
             break
         func, args = payload
         func(*args)
+
+
+def stitch_worker(
+        stitch_work_queue, target_stitch_raster_path,
+        stitch_done_queue):
+    """Take jobs from stitch work queue and stitch into target."""
+    while True:
+        payload = stitch_work_queue.get()
+        if payload is None:
+            stitch_work_queue.put(None)
+            stitch_done_queue.put(None)
+            break
+        target_beneficiaries_path, working_dir, job_id = payload
+        pygeoprocessing.stitch_rasters(
+            [(target_beneficiaries_path, 1)], ['near'],
+            (target_stitch_raster_path, 1))
+        # rm the target_beneficiaries_path
+        os.remove(target_beneficiaries_path)
+        stitch_done_queue.put((working_dir, job_id))
 
 
 def main(watershed_ids=None):
@@ -513,17 +527,29 @@ def main(watershed_ids=None):
 
     apply_manager_autopatch()
     manager = multiprocessing.Manager()
-    stitch_lock_list = [
-        manager.Lock() for _ in range(len(stitch_raster_path_map))]
-
-    watershed_work_queue = manager.Queue()
-
-    LOGGER.info('start complete worker thread')
     completed_work_queue = manager.Queue()
+    LOGGER.info('start complete worker thread')
     job_complete_worker_thread = threading.Thread(
         target=job_complete_worker,
         args=(completed_work_queue, work_db_path))
     job_complete_worker_thread.start()
+
+    stitch_work_queue_list = [
+        manager.Queue() for _ in range(len(stitch_raster_path_map))]
+    stitch_worker_process_list = []
+    for stitch_work_queue, target_stitch_raster_path in zip(
+            stitch_work_queue_list,
+            [stitch_raster_path_map['2000'],
+             stitch_raster_path_map['2017']]):
+        stitch_worker_process = multiprocessing.Process(
+            target=stitch_worker,
+            args=(
+                stitch_work_queue, target_stitch_raster_path,
+                completed_work_queue))
+        stitch_worker_process.start()
+        stitch_worker_process_list.append(stitch_worker_process)
+
+    watershed_work_queue = manager.Queue()
 
     if watershed_ids:
         for watershed_id in watershed_ids:
@@ -545,8 +571,7 @@ def main(watershed_ids=None):
                      watershed_fid}.tif'''],
                 [stitch_raster_path_map['2000'],
                  stitch_raster_path_map['2017']],
-                stitch_lock_list,
-                completed_work_queue)
+                stitch_work_queue_list)
     else:
         watershed_worker_process_list = []
         for _ in range(multiprocessing.cpu_count()):
@@ -585,8 +610,7 @@ def main(watershed_ids=None):
                          watershed_basename}_{watershed_fid}.tif'''],
                      [stitch_raster_path_map['2000'],
                       stitch_raster_path_map['2017']],
-                     stitch_lock_list,
-                     completed_work_queue)))
+                     stitch_work_queue_list)))
 
         for watershed_worker in watershed_worker_process_list:
             watershed_worker.join()
