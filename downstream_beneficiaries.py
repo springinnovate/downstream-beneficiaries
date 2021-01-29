@@ -35,7 +35,7 @@ logging.basicConfig(
         '%(asctime)s (%(relativeCreated)d) %(processName)s %(levelname)s '
         '%(name)s [%(funcName)s:%(lineno)d] %(message)s'))
 LOGGER = logging.getLogger(__name__)
-logging.getLogger('taskgraph').setLevel(logging.DEBUG)
+logging.getLogger('taskgraph').setLevel(logging.INFO)
 logging.getLogger('pygeoprocessing').setLevel(logging.DEBUG)
 
 
@@ -408,7 +408,7 @@ def general_worker(work_queue):
             work_queue.put(None)
             break
         func, args = payload
-        func(args)
+        func(*args)
 
 
 def main(watershed_ids=None):
