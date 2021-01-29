@@ -353,6 +353,17 @@ def job_complete_worker(completed_work_queue, work_db_path):
     connection = None
 
 
+def general_worker(work_queue):
+    """Invoke func on args coming through work queue."""
+    while True:
+        payload = work_queue.get()
+        if payload is None:
+            work_queue.put(None)
+            break
+        func, args = payload
+        func(args)
+
+
 def main(watershed_ids=None):
     """Entry point.
 
@@ -454,6 +465,8 @@ def main(watershed_ids=None):
 
     LOGGER.info('wait for downloads to conclude')
     task_graph.join()
+    task_graph.close()
+    task_graph = None
 
     watershed_root_dir = os.path.join(
         watershed_download_dir, 'watersheds_globe_HydroSHEDS_15arcseconds')
@@ -461,6 +474,8 @@ def main(watershed_ids=None):
     manager = multiprocessing.Manager()
     stitch_lock_list = [
         manager.Lock() for _ in range(len(stitch_raster_path_map))]
+
+    watershed_work_queue = multiprocessing.Queue()
 
     if watershed_ids:
         for watershed_id in watershed_ids:
@@ -472,23 +487,27 @@ def main(watershed_ids=None):
                 os.path.splitext(watershed_path)[0])}_{watershed_fid}'''
             if job_id in completed_job_set:
                 continue
-
-            task_graph.add_task(
-                func=process_watershed,
-                args=(
-                    job_id, watershed_path, int(watershed_fid), dem_vrt_path,
-                    [pop_raster_path_map['2000'],
-                     pop_raster_path_map['2017']],
-                    [f'''downstream_benficiaries_2000_{watershed_basename}_{
-                         watershed_fid}.tif''',
-                     f'''downstream_benficiaries_2017_{watershed_basename}_{
-                         watershed_fid}.tif'''],
-                    [stitch_raster_path_map['2000'],
-                     stitch_raster_path_map['2017']],
-                    stitch_lock_list,
-                    completed_work_queue),
-                task_name=f'process {watershed_basename}_{watershed_fid}')
+            process_watershed(
+                job_id, watershed_path, int(watershed_fid), dem_vrt_path,
+                [pop_raster_path_map['2000'],
+                 pop_raster_path_map['2017']],
+                [f'''downstream_benficiaries_2000_{watershed_basename}_{
+                     watershed_fid}.tif''',
+                 f'''downstream_benficiaries_2017_{watershed_basename}_{
+                     watershed_fid}.tif'''],
+                [stitch_raster_path_map['2000'],
+                 stitch_raster_path_map['2017']],
+                stitch_lock_list,
+                completed_work_queue)
     else:
+        watershed_worker_process_list = []
+        for _ in range(multiprocessing.cpu_count()):
+            watershed_worker_process = multiprocessing.Process(
+                target=general_worker,
+                args=(watershed_work_queue,))
+            watershed_worker_process.start()
+            watershed_worker_process_list.append(watershed_worker_process)
+
         for watershed_path in glob.glob(
                 os.path.join(watershed_root_dir, '*.shp')):
             watershed_vector = gdal.OpenEx(watershed_path, gdal.OF_VECTOR)
@@ -507,26 +526,25 @@ def main(watershed_ids=None):
                 if job_id in completed_job_set:
                     continue
 
-                task_graph.add_task(
-                    func=process_watershed,
-                    args=(
-                        watershed_path, watershed_fid, dem_vrt_path,
-                        [pop_raster_path_map['2000'],
-                         pop_raster_path_map['2017']],
-                        [f'''downstream_benficiaries_2000_{
-                            watershed_basename}_{watershed_fid}.tif''',
-                         f'''downstream_benficiaries_2017_{
-                            watershed_basename}_{watershed_fid}.tif'''],
-                        [stitch_raster_path_map['2000'],
-                         stitch_raster_path_map['2017']],
-                        stitch_lock_list,
-                        completed_work_queue),
-                    task_name=f'''process {
-                        watershed_basename}_{watershed_fid}''')
+                watershed_work_queue.put((
+                    process_watershed,
+                    (watershed_path, watershed_fid, dem_vrt_path,
+                     [pop_raster_path_map['2000'],
+                      pop_raster_path_map['2017']],
+                     [f'''downstream_benficiaries_2000_{
+                         watershed_basename}_{watershed_fid}.tif''',
+                      f'''downstream_benficiaries_2017_{
+                         watershed_basename}_{watershed_fid}.tif'''],
+                     [stitch_raster_path_map['2000'],
+                      stitch_raster_path_map['2017']],
+                     stitch_lock_list,
+                     completed_work_queue)))
 
-    task_graph.join()
-    task_graph.close()
-    completed_work_queue.put(None)
+        for watershed_worker in watershed_worker_process_list:
+            watershed_worker.join()
+        watershed_work_queue.put(None)
+
+    LOGGER.info('all done')
 
 
 if __name__ == '__main__':
