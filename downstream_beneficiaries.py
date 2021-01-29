@@ -391,13 +391,6 @@ def main(watershed_ids=None):
     completed_job_set = get_completed_job_id_set(work_db_path)
     LOGGER.info(f'there are {len(completed_job_set)} completed jobs so far')
 
-    LOGGER.info('start complete worker thread')
-    completed_work_queue = multiprocessing.Queue()
-    job_complete_worker_thread = threading.Thread(
-        target=job_complete_worker,
-        args=(completed_work_queue, work_db_path))
-    job_complete_worker_thread.start()
-
     for dir_path in [
             dem_download_dir, watershed_download_dir,
             population_download_dir]:
@@ -475,7 +468,14 @@ def main(watershed_ids=None):
     stitch_lock_list = [
         manager.Lock() for _ in range(len(stitch_raster_path_map))]
 
-    watershed_work_queue = multiprocessing.Queue()
+    watershed_work_queue = manager.Queue()
+
+    LOGGER.info('start complete worker thread')
+    completed_work_queue = manager.Queue()
+    job_complete_worker_thread = threading.Thread(
+        target=job_complete_worker,
+        args=(completed_work_queue, work_db_path))
+    job_complete_worker_thread.start()
 
     if watershed_ids:
         for watershed_id in watershed_ids:
