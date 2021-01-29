@@ -85,12 +85,14 @@ def _create_outlet_raster(
 
 
 def process_watershed(
-        watershed_vector_path, watershed_fid, dem_path, pop_raster_path_list,
+        job_id, watershed_vector_path, watershed_fid, dem_path, pop_raster_path_list,
         target_beneficiaries_path_list, target_stitch_path_list,
-        target_stitch_lock_list, completed_job_set, completed_work_queue):
+        target_stitch_lock_list, completed_work_queue):
     """Calculate downstream beneficiaries for this watershed.
 
     Args:
+        job_id (str): unique ID identifying this job, can be used to
+            create unique workspaces.
         watershed_vector_path (str): path to watershed vector
         watershed_fid (str): watershed FID to process
         dem_path (str): path to DEM vector
@@ -102,8 +104,6 @@ def process_watershed(
             stitch the result into
         target_stitch_lock_list (list): list of locks to use when stitching
             to the rasters in the parallel `target_stitch_path_list`.
-        completed_job_set (set): jobs that have been completed on previous
-            iterations are in this set.
         work_db_path (str): path to an SQLite db that has 'job ids' for
             completed watershed.
         completed_work_queue (queue): put completed work
@@ -112,12 +112,6 @@ def process_watershed(
     Return:
         None.
     """
-    job_id = f'''{os.path.basename(
-        os.path.splitext(watershed_vector_path)[0])}_{watershed_fid}'''
-    # check if job_id is in the database as done, if so skip
-    if job_id in completed_job_set:
-        return
-
     LOGGER.debug(f'create working directory for {job_id}')
 
     working_dir = os.path.join(
@@ -467,7 +461,6 @@ def main(watershed_ids=None):
     manager = multiprocessing.Manager()
     stitch_lock_list = [
         manager.Lock() for _ in range(len(stitch_raster_path_map))]
-    db_lock = manager.Lock()
 
     if watershed_ids:
         for watershed_id in watershed_ids:
@@ -475,10 +468,15 @@ def main(watershed_ids=None):
             watershed_path = os.path.join(
                 watershed_root_dir, f'{watershed_basename}.shp')
 
+            job_id = f'''{os.path.basename(
+                os.path.splitext(watershed_path)[0])}_{watershed_fid}'''
+            if job_id in completed_job_set:
+                continue
+
             task_graph.add_task(
                 func=process_watershed,
                 args=(
-                    watershed_path, int(watershed_fid), dem_vrt_path,
+                    job_id, watershed_path, int(watershed_fid), dem_vrt_path,
                     [pop_raster_path_map['2000'],
                      pop_raster_path_map['2017']],
                     [f'''downstream_benficiaries_2000_{watershed_basename}_{
@@ -488,9 +486,7 @@ def main(watershed_ids=None):
                     [stitch_raster_path_map['2000'],
                      stitch_raster_path_map['2017']],
                     stitch_lock_list,
-                    completed_job_set,
-                    work_db_path,
-                    db_lock),
+                    completed_work_queue),
                 task_name=f'process {watershed_basename}_{watershed_fid}')
     else:
         for watershed_path in glob.glob(
@@ -505,6 +501,12 @@ def main(watershed_ids=None):
             watershed_basename = os.path.splitext(
                 os.path.basename(watershed_path))[0]
             for watershed_fid in watershed_fid_list:
+
+                job_id = f'''{os.path.basename(
+                    os.path.splitext(watershed_path)[0])}_{watershed_fid}'''
+                if job_id in completed_job_set:
+                    continue
+
                 task_graph.add_task(
                     func=process_watershed,
                     args=(
@@ -518,7 +520,6 @@ def main(watershed_ids=None):
                         [stitch_raster_path_map['2000'],
                          stitch_raster_path_map['2017']],
                         stitch_lock_list,
-                        completed_job_set,
                         completed_work_queue),
                     task_name=f'''process {
                         watershed_basename}_{watershed_fid}''')
