@@ -10,9 +10,11 @@ import math
 import multiprocessing
 import os
 import pathlib
+import queue
 import shutil
 import sqlite3
 import subprocess
+import threading
 
 from osgeo import gdal
 from osgeo import osr
@@ -84,7 +86,7 @@ def _create_outlet_raster(
 def process_watershed(
         watershed_vector_path, watershed_fid, dem_path, pop_raster_path_list,
         target_beneficiaries_path_list, target_stitch_path_list,
-        target_stitch_lock_list, completed_job_set, work_db_path, db_lock):
+        target_stitch_lock_list, completed_job_set, completed_work_queue):
     """Calculate downstream beneficiaries for this watershed.
 
     Args:
@@ -103,7 +105,8 @@ def process_watershed(
             iterations are in this set.
         work_db_path (str): path to an SQLite db that has 'job ids' for
             completed watershed.
-        db_lock (lock): lock for the database to write to.
+        completed_work_queue (queue): put completed work
+            (workspace_dir, job_id) to this queue.
 
     Return:
         None.
@@ -286,11 +289,8 @@ def process_watershed(
     task_graph.close()
     task_graph.join()
     task_graph = None
-    shutil.rmtree(working_dir)
     # make entry in database that everything is complete
-    with db_lock:
-        record_job_id_complete(work_db_path, job_id)
-    LOGGER.info(f'done with {job_id}')
+    completed_work_queue.put((working_dir, job_id))
 
 
 def get_completed_job_id_set(db_path):
@@ -330,14 +330,28 @@ def get_completed_job_id_set(db_path):
     return result
 
 
-def record_job_id_complete(db_path, job_id):
-    """Make an entry in the db that the job is complete."""
-    connection = sqlite3.connect(db_path)
-    cursor = connection.execute(
-        f"""
-        INSERT INTO completed_job_ids VALUES ("{job_id}")
-        """)
-    cursor.close()
+def job_complete_worker(completed_work_queue, work_db_path):
+    """Update the database with completed work."""
+    connection = sqlite3.connect(work_db_path)
+    uncommited_count = 0
+    while True:
+        payload = completed_work_queue.get()
+        if payload is None:
+            LOGGER.info('got None in completed work, terminating')
+            break
+        working_dir, job_id = payload
+        shutil.rmtree(working_dir)
+        cursor = connection.execute(
+            f"""
+            INSERT INTO completed_job_ids VALUES ("{job_id}")
+            """)
+        cursor.close()
+        LOGGER.info(f'done with {job_id}')
+        uncommited_count += 1
+        if uncommited_count > 100:
+            connection.commit()
+            uncommited_count = 0
+
     connection.commit()
     connection.close()
     cursor = None
@@ -367,6 +381,12 @@ def main(watershed_ids=None):
 
     work_db_path = os.path.join(WORKSPACE_DIR, 'completed_fids.db')
     completed_job_set = get_completed_job_id_set(work_db_path)
+
+    completed_work_queue = queue.Queue()
+    job_complete_worker_thread = threading.Thread(
+        target=job_complete_worker,
+        args=(completed_work_queue, work_db_path))
+    job_complete_worker_thread.start()
 
     for dir_path in [
             dem_download_dir, watershed_download_dir,
@@ -491,13 +511,13 @@ def main(watershed_ids=None):
                          stitch_raster_path_map['2017']],
                         stitch_lock_list,
                         completed_job_set,
-                        work_db_path,
-                        db_lock),
+                        completed_work_queue),
                     task_name=f'''process {
                         watershed_basename}_{watershed_fid}''')
 
     task_graph.join()
     task_graph.close()
+    completed_work_queue.put(None)
 
 
 if __name__ == '__main__':
