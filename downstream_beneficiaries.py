@@ -369,6 +369,7 @@ def main(watershed_ids=None):
     Return:
         None.
     """
+    LOGGER.info('create new taskgraph')
     task_graph = taskgraph.TaskGraph(
         WORKSPACE_DIR, multiprocessing.cpu_count(), 15.0)
 
@@ -428,6 +429,7 @@ def main(watershed_ids=None):
     for pop_id, pop_url in POPULATION_RASTER_URL_MAP.items():
         pop_raster_path = os.path.join(
             population_download_dir, os.path.basename(pop_url))
+        LOGGER.info(f'download {pop_url}')
         download_pop_raster = task_graph.add_task(
             func=ecoshard.download_url,
             args=(pop_url, pop_raster_path),
