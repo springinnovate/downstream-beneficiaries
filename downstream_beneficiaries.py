@@ -28,6 +28,7 @@ gdal.SetCacheMax(2**27)
 
 logging.basicConfig(
     level=logging.DEBUG,
+    filename='log.out',
     format=(
         '%(asctime)s (%(relativeCreated)d) %(processName)s %(levelname)s '
         '%(name)s [%(funcName)s:%(lineno)d] %(message)s'))
