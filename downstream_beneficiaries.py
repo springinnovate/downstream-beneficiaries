@@ -575,7 +575,7 @@ def main(watershed_ids=None):
                     continue
 
                 watershed_work_queue.put((
-                    process_watershed,
+                    job_id, process_watershed,
                     (watershed_path, watershed_fid, dem_vrt_path,
                      [pop_raster_path_map['2000'],
                       pop_raster_path_map['2017']],
