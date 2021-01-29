@@ -381,8 +381,11 @@ def main(watershed_ids=None):
         WORKSPACE_DIR, 'population_rasters')
 
     work_db_path = os.path.join(WORKSPACE_DIR, 'completed_fids.db')
+    LOGGER.info('fetch completed job set')
     completed_job_set = get_completed_job_id_set(work_db_path)
+    LOGGER.info(f'there are {len(completed_job_set)} completed jobs so far')
 
+    LOGGER.info('start complete worker thread')
     completed_work_queue = queue.Queue()
     job_complete_worker_thread = threading.Thread(
         target=job_complete_worker,
@@ -394,6 +397,7 @@ def main(watershed_ids=None):
             population_download_dir]:
         os.makedirs(dir_path, exist_ok=True)
 
+    LOGGER.info('download dem')
     download_dem_task = task_graph.add_task(
         func=ecoshard.download_and_unzip,
         args=(DEM_ZIP_URL, dem_download_dir),
@@ -405,6 +409,7 @@ def main(watershed_ids=None):
         f'{os.path.basename(os.path.splitext(DEM_ZIP_URL)[0])}.vrt')
     LOGGER.debug(f'build vrt to {dem_vrt_path}')
 
+    LOGGER.info('build vrt')
     task_graph.add_task(
         func=subprocess.run,
         args=(f'gdalbuildvrt {dem_vrt_path} {dem_tile_dir}/*.tif',),
