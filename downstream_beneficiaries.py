@@ -200,12 +200,11 @@ def process_watershed(
     dem_info = pygeoprocessing.get_raster_info(dem_path)
     dem_gt = dem_info['geotransform']
     ul = gdal.ApplyGeoTransform(dem_gt, 0, 0)
-    lr = gdal.ApplyGeoTransform(dem_gt, 1, 1)
     dem_pixel_bb = [
-        min(ul[0], lr[0]),
-        min(ul[1], lr[1]),
-        max(ul[0], lr[0]),
-        max(ul[1], lr[1])]
+        ul[0],
+        ul[1],
+        ul[0]+300,
+        ul[1]+300]
 
     target_pixel_bb = pygeoprocessing.transform_bounding_box(
         dem_pixel_bb, dem_info['projection_wkt'], epsg_sr.ExportToWkt())
