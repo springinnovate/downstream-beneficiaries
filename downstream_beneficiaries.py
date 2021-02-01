@@ -143,7 +143,7 @@ def process_watershed(
             create unique workspaces.
         watershed_vector_path (str): path to watershed vector
         watershed_fid (str): watershed FID to process
-        dem_path (str): path to DEM vector
+        dem_path (str): path to DEM raster
         pop_raster_path_list (list): list of population rasters to route
         target_beneficiaries_path_list (str): list of target downstream
             beneficiary rasters to create, parallel with
@@ -197,23 +197,7 @@ def process_watershed(
     watershed_centroid = None
     watershed_envelope = None
 
-    dem_info = pygeoprocessing.get_raster_info(dem_path)
-    dem_gt = dem_info['geotransform']
-    ul = gdal.ApplyGeoTransform(dem_gt, 0, 0)
-    dem_pixel_bb = [
-        ul[0],
-        ul[1],
-        ul[0]+300,
-        ul[1]+300]
-
-    target_pixel_bb = pygeoprocessing.transform_bounding_box(
-        dem_pixel_bb, dem_info['projection_wkt'], epsg_sr.ExportToWkt())
-    # x increases, y decreases
-    # make sure we take the smallest side so our dem pixels are square
-    target_pixel_side = min(
-        abs(target_pixel_bb[2]-target_pixel_bb[0]),
-        abs(target_pixel_bb[3]-target_pixel_bb[1]))
-    target_pixel_size = (target_pixel_side, -target_pixel_side)
+    target_pixel_size = (300, -300)
 
     warped_dem_raster_path = os.path.join(working_dir, f'{job_id}_dem.tif')
     warp_dem_task = task_graph.add_task(
