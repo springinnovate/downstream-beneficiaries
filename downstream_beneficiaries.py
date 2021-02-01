@@ -367,6 +367,7 @@ def job_complete_worker(completed_work_queue, work_db_path):
     connection = sqlite3.connect(work_db_path)
     uncommited_count = 0
     working_jobs = set()
+    global WATERSHEDS_TO_PROCESS_COUNT
     while True:
         payload = completed_work_queue.get()
         if payload is None:
@@ -377,6 +378,7 @@ def job_complete_worker(completed_work_queue, work_db_path):
             working_jobs.add(job_id)
             continue
         working_jobs.remove(job_id)
+        WATERSHEDS_TO_PROCESS_COUNT -= 1
         shutil.rmtree(working_dir)
         cursor = connection.execute(
             f"""
@@ -388,6 +390,9 @@ def job_complete_worker(completed_work_queue, work_db_path):
         if uncommited_count > 100:
             connection.commit()
             uncommited_count = 0
+            LOGGER.info(
+                'remaining watersheds to process: '
+                f'{WATERSHEDS_TO_PROCESS_COUNT}')
 
     connection.commit()
     connection.close()
@@ -532,6 +537,8 @@ def main(watershed_ids=None):
     manager = multiprocessing.Manager()
     completed_work_queue = manager.Queue()
     LOGGER.info('start complete worker thread')
+    global WATERSHEDS_TO_PROCESS_COUNT
+    WATERSHEDS_TO_PROCESS_COUNT = 0
     job_complete_worker_thread = threading.Thread(
         target=job_complete_worker,
         args=(completed_work_queue, work_db_path))
@@ -564,6 +571,7 @@ def main(watershed_ids=None):
                 os.path.splitext(watershed_path)[0])}_{watershed_fid}'''
             if job_id in completed_job_set:
                 continue
+            WATERSHEDS_TO_PROCESS_COUNT += 1
             process_watershed(
                 job_id, watershed_path, int(watershed_fid), dem_vrt_path,
                 [pop_raster_path_map['2000'],
@@ -601,7 +609,7 @@ def main(watershed_ids=None):
                     os.path.splitext(watershed_path)[0])}_{watershed_fid}'''
                 if job_id in completed_job_set:
                     continue
-
+                WATERSHEDS_TO_PROCESS_COUNT += 1
                 watershed_work_queue.put((
                     process_watershed,
                     (job_id, watershed_path, watershed_fid, dem_vrt_path,
