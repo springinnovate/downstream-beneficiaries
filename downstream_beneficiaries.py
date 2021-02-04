@@ -617,7 +617,7 @@ def main(watershed_ids=None):
     for stitch_worker_process in stitch_worker_process_list:
         stitch_worker_process.join()
 
-    job_complete_worker.join()
+    job_complete_worker_thread.join()
     LOGGER.info('all done')
 
 
