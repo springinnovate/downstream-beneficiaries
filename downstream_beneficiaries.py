@@ -514,9 +514,6 @@ def main(watershed_ids=None):
     task_graph.close()
     task_graph = None
 
-    watershed_root_dir = os.path.join(
-        watershed_download_dir, 'watersheds_globe_HydroSHEDS_15arcseconds')
-
     apply_manager_autopatch()
     manager = multiprocessing.Manager()
     completed_work_queue = manager.Queue()
@@ -544,6 +541,9 @@ def main(watershed_ids=None):
         stitch_worker_process_list.append(stitch_worker_process)
 
     watershed_work_queue = manager.Queue()
+
+    watershed_root_dir = os.path.join(
+        watershed_download_dir, 'watersheds_globe_HydroSHEDS_15arcseconds')
 
     if watershed_ids:
         for watershed_id in watershed_ids:
@@ -607,13 +607,18 @@ def main(watershed_ids=None):
                       stitch_raster_path_map['2017']],
                      stitch_work_queue_list)))
 
+        watershed_work_queue.put(None)
         for watershed_worker in watershed_worker_process_list:
             watershed_worker.join()
-        watershed_work_queue.put(None)
 
+    for stitch_queue in stitch_work_queue_list:
+        stitch_queue.put(None)
+
+    for stitch_worker_process in stitch_worker_process_list:
+        stitch_worker_process.join()
+
+    job_complete_worker.join()
     LOGGER.info('all done')
-    task_graph.join()
-    task_graph.close()
 
 
 if __name__ == '__main__':
