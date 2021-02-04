@@ -345,7 +345,7 @@ def get_completed_job_id_set(db_path):
     return result
 
 
-def job_complete_worker(completed_work_queue, work_db_path):
+def job_complete_worker(completed_work_queue, work_db_path, clean_result):
     """Update the database with completed work."""
     connection = sqlite3.connect(work_db_path)
     uncommited_count = 0
@@ -362,7 +362,8 @@ def job_complete_worker(completed_work_queue, work_db_path):
             continue
         working_jobs.remove(job_id)
         WATERSHEDS_TO_PROCESS_COUNT -= 1
-        shutil.rmtree(working_dir)
+        if clean_result:
+            shutil.rmtree(working_dir)
         cursor = connection.execute(
             f"""
             INSERT INTO completed_job_ids VALUES ("{job_id}")
@@ -524,7 +525,7 @@ def main(watershed_ids=None):
     WATERSHEDS_TO_PROCESS_COUNT = 0
     job_complete_worker_thread = threading.Thread(
         target=job_complete_worker,
-        args=(completed_work_queue, work_db_path))
+        args=(completed_work_queue, work_db_path, args.clean_result))
     job_complete_worker_thread.start()
 
     stitch_work_queue_list = [
@@ -611,6 +612,8 @@ def main(watershed_ids=None):
         watershed_work_queue.put(None)
 
     LOGGER.info('all done')
+    task_graph.join()
+    task_graph.close()
 
 
 if __name__ == '__main__':
@@ -618,6 +621,10 @@ if __name__ == '__main__':
     parser.add_argument(
         '--watershed_ids', nargs='+',
         help='if present only run on this watershed id')
+    parser.add_argument(
+        '--clean_result', action='store_true',
+        help='use this flag to delete the workspace after stitching')
+
     args = parser.parse_args()
 
     main(watershed_ids=args.watershed_ids)
