@@ -397,7 +397,7 @@ def general_worker(work_queue):
 
 def stitch_worker(
         stitch_work_queue, target_stitch_raster_path,
-        stitch_done_queue):
+        stitch_done_queue, clean_result):
     """Take jobs from stitch work queue and stitch into target."""
     while True:
         payload = stitch_work_queue.get()
@@ -409,8 +409,8 @@ def stitch_worker(
         pygeoprocessing.stitch_rasters(
             [(target_beneficiaries_path, 1)], ['near'],
             (target_stitch_raster_path, 1))
-        # rm the target_beneficiaries_path
-        os.remove(target_beneficiaries_path)
+        if clean_result:
+            os.remove(target_beneficiaries_path)
         stitch_done_queue.put((working_dir, job_id))
 
 
@@ -536,7 +536,7 @@ def main(watershed_ids=None):
             target=stitch_worker,
             args=(
                 stitch_work_queue, target_stitch_raster_path,
-                completed_work_queue))
+                completed_work_queue, args.clean_result))
         stitch_worker_process.start()
         stitch_worker_process_list.append(stitch_worker_process)
 
