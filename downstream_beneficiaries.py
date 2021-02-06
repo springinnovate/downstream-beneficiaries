@@ -425,8 +425,7 @@ def main(watershed_ids=None):
         None.
     """
     LOGGER.info('create new taskgraph')
-    task_graph = taskgraph.TaskGraph(
-        WORKSPACE_DIR, multiprocessing.cpu_count(), 15.0)
+    task_graph = taskgraph.TaskGraph(WORKSPACE_DIR, -1)
 
     dem_download_dir = os.path.join(
         WORKSPACE_DIR, os.path.basename(os.path.splitext(DEM_ZIP_URL)[0]))
