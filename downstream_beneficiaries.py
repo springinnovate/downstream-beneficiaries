@@ -1,8 +1,4 @@
-"""Calculate downstream beneficiaries.
-
-Design:
-
-"""
+"""Calculate downstream beneficiaries."""
 import argparse
 import glob
 import logging
@@ -655,8 +651,10 @@ def main(watershed_ids=None):
                          watershed_basename}_{watershed_fid}.tif''',
                       f'''downstream_benficiaries_2017_{
                          watershed_basename}_{watershed_fid}.tif'''],
-                     [stitch_raster_path_map['2000'],
-                      stitch_raster_path_map['2017']],
+                     [f'''downstream_benficiaries_2000_{
+                         watershed_basename}_{watershed_fid}_normalized.tif''',
+                      f'''downstream_benficiaries_2017_{
+                         watershed_basename}_{watershed_fid}_normalized.tif'''],
                      stitch_work_queue_list)))
 
         watershed_work_queue.put(None)
