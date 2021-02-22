@@ -131,10 +131,28 @@ def _create_outlet_raster(
     outlet_raster = None
 
 
+def normalize(
+        base_raster_path,
+        weight_raster_path,
+        target_raster_path):
+    """Normalize base by weight."""
+    base_nodata = pygeoprocessing.get_raster_info(base_raster_path)['nodata'][0]
+
+    def _safe_div_op(base, weight):
+        result = numpy.full(base.shape, base_nodata, dtype=numpy.float32)
+        valid_mask = (base != base_nodata) & (weight > 0)
+        result[valid_mask] = base[valid_mask]/weight[valid_mask]
+        return result
+
+    pygeoprocessing.raster_calculator(
+        [(base_raster_path, 1), (weight_raster_path, 1)], _safe_div_op,
+        target_raster_path, gdal.GDT_Float32, base_nodata)
+
+
 def process_watershed(
         job_id, watershed_vector_path, watershed_fid, dem_path,
         pop_raster_path_list, target_beneficiaries_path_list,
-        target_stitch_path_list,
+        target_normalized_beneficiaries_path_list,
         target_stitch_work_queue_list):
     """Calculate downstream beneficiaries for this watershed.
 
@@ -148,8 +166,9 @@ def process_watershed(
         target_beneficiaries_path_list (str): list of target downstream
             beneficiary rasters to create, parallel with
             `pop_raster_path_list`.
-        target_stitch_path_list (list): list of target stitch rasters to
-            stitch the result into
+        target_normalized_beneficiaries_path_list (list): list of target
+            normalized downstream beneficiary rasters, parallel with other
+            lists.
         target_stitch_work_queue_list (list): list of work queues to put done
             signals in when each beneficiary raster is done.
 
@@ -258,9 +277,11 @@ def process_watershed(
         task_name=f'create outlet raster {outlet_raster_path}')
 
     for (pop_raster_path, target_beneficiaries_path,
-         target_stitch_path, stitch_queue) in zip(
+         target_normalized_beneficiaries_path,
+         stitch_queue) in zip(
             pop_raster_path_list, target_beneficiaries_path_list,
-            target_stitch_path_list, target_stitch_work_queue_list):
+            target_normalized_beneficiaries_path_list,
+            target_stitch_work_queue_list):
         LOGGER.debug(
             f'route downstream beneficiaries to '
             f'{target_beneficiaries_path_list}')
@@ -299,9 +320,34 @@ def process_watershed(
                 'calc downstream beneficiaries for '
                 f'{target_beneficiaries_path}'))
 
-        downstream_bene_task.join()
+        target_downstream_dist_path = os.path.join(
+            working_dir, f'''d8_dist_{job_id}_{os.path.basename(
+                os.path.splitext(target_beneficiaries_path)[0])}.tif''')
+        downstream_dist_task = task_graph.add_task(
+            func=pygeoprocessing.routing.distance_to_channel_d8,
+            args=(
+                (flow_dir_d8_raster_path, 1), (outlet_raster_path, 1),
+                target_downstream_dist_path),
+            dependent_task_list=[
+                pop_warp_task, create_outlet_raster_task, flow_dir_d8_task],
+            target_path_list=[target_downstream_dist_path],
+            task_name=(
+                'calc downstream dist for '
+                f'{target_downstream_dist_path}'))
+
+        normalize_by_dist_task = task_graph.add_task(
+            func=normalize,
+            args=(target_beneficiaries_path, target_downstream_dist_path, target_normalized_beneficiaries_path),
+            dependent_task_list=[downstream_dist_task, downstream_bene_task],
+            target_path_list=[target_normalized_beneficiaries_path],
+            task_name=(
+                f'normalized beneficiaries for '
+                f'{target_normalized_beneficiaries_path}'))
+
+        normalize_by_dist_task.join()
         stitch_queue.put(
-            (target_beneficiaries_path, working_dir, job_id))
+            (target_beneficiaries_path, target_normalized_beneficiaries_path,
+             working_dir, job_id))
 
     task_graph.close()
     task_graph.join()
@@ -396,7 +442,7 @@ def general_worker(work_queue):
 
 
 def stitch_worker(
-        stitch_work_queue, target_stitch_raster_path,
+        stitch_work_queue, target_stitch_raster_path_list,
         stitch_done_queue, clean_result):
     """Take jobs from stitch work queue and stitch into target."""
     while True:
@@ -405,12 +451,15 @@ def stitch_worker(
             stitch_work_queue.put(None)
             stitch_done_queue.put(None)
             break
-        target_beneficiaries_path, working_dir, job_id = payload
-        pygeoprocessing.stitch_rasters(
-            [(target_beneficiaries_path, 1)], ['near'],
-            (target_stitch_raster_path, 1))
-        if clean_result:
-            os.remove(target_beneficiaries_path)
+        target_beneficiaries_path_list, working_dir, job_id = payload
+        for target_beneficiaries_path, target_stitch_raster_path in zip(
+                target_beneficiaries_path_list,
+                target_stitch_raster_path_list):
+            pygeoprocessing.stitch_rasters(
+                [(target_beneficiaries_path, 1)], ['near'],
+                (target_stitch_raster_path, 1))
+            if clean_result:
+                os.remove(target_beneficiaries_path)
         stitch_done_queue.put((working_dir, job_id))
 
 
@@ -483,30 +532,32 @@ def main(watershed_ids=None):
             target_path_list=[pop_raster_path],
             task_name=f'download {pop_url}')
         pop_raster_path_map[pop_id] = pop_raster_path
-        stitch_raster_path_map[pop_id] = os.path.join(
-            WORKSPACE_DIR, f'global_stitch_{pop_id}.tif')
+        stitch_raster_path_map[pop_id] = [
+            os.path.join(WORKSPACE_DIR, f'global_stitch_{pop_id}.tif'),
+            os.path.join(WORKSPACE_DIR, f'global_stitch_{pop_id}_normalized.tif')]
 
-        if not os.path.exists(stitch_raster_path_map[pop_id]):
-            driver = gdal.GetDriverByName('GTiff')
-            cell_size = 10./3600.
-            n_cols = int(360./cell_size)
-            n_rows = int(180./cell_size)
-            LOGGER.info(f'**** creating raster of size {n_cols} by {n_rows}')
-            target_raster = driver.Create(
-                stitch_raster_path_map[pop_id],
-                int(360/cell_size), int(180/cell_size), 1,
-                gdal.GDT_Float32,
-                options=(
-                    'TILED=YES', 'BIGTIFF=YES', 'COMPRESS=LZW',
-                    'SPARSE_OK=TRUE', 'BLOCKXSIZE=256', 'BLOCKYSIZE=256'))
-            wgs84_srs = osr.SpatialReference()
-            wgs84_srs.ImportFromEPSG(4326)
-            target_raster.SetProjection(wgs84_srs.ExportToWkt())
-            target_raster.SetGeoTransform(
-                [-180, cell_size, 0, 90, 0, -cell_size])
-            target_band = target_raster.GetRasterBand(1)
-            target_band.SetNoDataValue(-9999)
-            target_raster = None
+        for stitch_path in stitch_raster_path_map[pop_id]:
+            if not os.path.exists(stitch_path):
+                driver = gdal.GetDriverByName('GTiff')
+                cell_size = 10./3600.
+                n_cols = int(360./cell_size)
+                n_rows = int(180./cell_size)
+                LOGGER.info(f'**** creating raster of size {n_cols} by {n_rows}')
+                target_raster = driver.Create(
+                    stitch_path,
+                    int(360/cell_size), int(180/cell_size), 1,
+                    gdal.GDT_Float32,
+                    options=(
+                        'TILED=YES', 'BIGTIFF=YES', 'COMPRESS=LZW',
+                        'SPARSE_OK=TRUE', 'BLOCKXSIZE=256', 'BLOCKYSIZE=256'))
+                wgs84_srs = osr.SpatialReference()
+                wgs84_srs.ImportFromEPSG(4326)
+                target_raster.SetProjection(wgs84_srs.ExportToWkt())
+                target_raster.SetGeoTransform(
+                    [-180, cell_size, 0, 90, 0, -cell_size])
+                target_band = target_raster.GetRasterBand(1)
+                target_band.SetNoDataValue(-9999)
+                target_raster = None
 
     LOGGER.info('wait for downloads to conclude')
     task_graph.join()
@@ -527,14 +578,14 @@ def main(watershed_ids=None):
     stitch_work_queue_list = [
         manager.Queue() for _ in range(len(stitch_raster_path_map))]
     stitch_worker_process_list = []
-    for stitch_work_queue, target_stitch_raster_path in zip(
+    for stitch_work_queue, target_stitch_raster_path_list in zip(
             stitch_work_queue_list,
             [stitch_raster_path_map['2000'],
              stitch_raster_path_map['2017']]):
         stitch_worker_process = multiprocessing.Process(
             target=stitch_worker,
             args=(
-                stitch_work_queue, target_stitch_raster_path,
+                stitch_work_queue, target_stitch_raster_path_list,
                 completed_work_queue, args.clean_result))
         stitch_worker_process.start()
         stitch_worker_process_list.append(stitch_worker_process)
@@ -563,8 +614,10 @@ def main(watershed_ids=None):
                      watershed_fid}.tif''',
                  f'''downstream_benficiaries_2017_{watershed_basename}_{
                      watershed_fid}.tif'''],
-                [stitch_raster_path_map['2000'],
-                 stitch_raster_path_map['2017']],
+                [f'''downstream_benficiaries_2000_{watershed_basename}_{
+                     watershed_fid}_normalized.tif''',
+                 f'''downstream_benficiaries_2017_{watershed_basename}_{
+                     watershed_fid}_normalized.tif'''],
                 stitch_work_queue_list)
     else:
         watershed_worker_process_list = []
