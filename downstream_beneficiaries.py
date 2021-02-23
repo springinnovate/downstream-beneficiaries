@@ -669,7 +669,7 @@ def main(watershed_ids=None):
                     process_watershed,
                     (job_id, watershed_path, watershed_fid, dem_vrt_path,
                      [pop_raster_path_map[raster_id]
-                      for raster_id in POPULATION_RASTER_URL_MAP.keys()]
+                      for raster_id in POPULATION_RASTER_URL_MAP.keys()],
                      [f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
                          watershed_fid}.tif'''
                       for raster_id in POPULATION_RASTER_URL_MAP.keys()],
