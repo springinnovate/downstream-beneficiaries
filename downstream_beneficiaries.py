@@ -105,7 +105,7 @@ def _warp_and_wgs84_area_scale(
         vector_mask_options={
             'mask_vector_path': watershed_vector_path,
             'mask_vector_where_filter': f'"FID"={watershed_fid}'}
-        'working_dir': working_dir)
+        working_dir=working_dir)
 
     pygeoprocessing.new_raster_from_base(
         model_raster_path, target_raster_path, gdal.GDT_Float32, [-1.0])
