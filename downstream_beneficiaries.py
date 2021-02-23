@@ -237,7 +237,9 @@ def process_watershed(
         func=pygeoprocessing.routing.fill_pits,
         args=(
             (warped_dem_raster_path, 1), filled_dem_raster_path),
-        kwargs={'working_dir': working_dir},
+        kwargs={
+            'working_dir': working_dir,
+            'max_pixel_fill_count': 10000},
         dependent_task_list=[warp_dem_task],
         target_path_list=[filled_dem_raster_path],
         task_name=f'fill dem pits to {filled_dem_raster_path}')
@@ -271,6 +273,27 @@ def process_watershed(
         dependent_task_list=[detect_outlets_task],
         target_path_list=[outlet_raster_path],
         task_name=f'create outlet raster {outlet_raster_path}')
+
+    flow_accum_d8_raster_path = os.path.join(
+        working_dir, f'{job_id}_flow_accum.tif')
+    flow_dir_d8_task = task_graph.add_task(
+        func=pygeoprocessing.routing.flow_dir_d8,
+        args=((flow_dir_d8_raster_path, 1), flow_accum_d8_raster_path),
+        dependent_task_list=[flow_dir_d8_task],
+        target_path_list=[flow_accum_d8_raster_path],
+        task_name=f'calc flow dir for {flow_accum_d8_raster_path}')
+
+    target_stream_vector_path = os.path.join(working_dir, f'{job_id}_stream.gpkg')
+    strahler_stream_task = task_graph.add_task(
+        func=pygeoprocessing.routing.extract_strahler_streams_d8,
+        args=(
+            (flow_dir_d8_raster_path, 1),
+            (flow_accum_d8_raster_path, 1),
+            (filled_dem_raster_path, 1),
+            target_stream_vector_path),
+        dependent_task_list=[flow_dir_d8_task],
+        target_path_list=[target_stream_vector_path],
+        task_name=f'extract streams to {target_stream_vector_path}')
 
     for (pop_raster_path, target_beneficiaries_path,
          target_normalized_beneficiaries_path,
