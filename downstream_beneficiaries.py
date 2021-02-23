@@ -128,7 +128,7 @@ def _warp_and_wgs84_area_scale(
     scaled_raster_path = os.path.join(
         working_dir,
         f'scaled_{os.path.basename(clipped_base_path)}')
-    base_pixel_area_m2 = model_raster_info['cell_size'][0]**2
+    base_pixel_area_m2 = model_raster_info['pixel_size'][0]**2
     # multiply the pixels in the resampled raster by the ratio of
     # the pixel area in the wgs84 units divided by the area of the
     # original pixel
