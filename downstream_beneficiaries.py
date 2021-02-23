@@ -19,6 +19,7 @@ from osgeo import osr
 import ecoshard
 import numpy
 import pygeoprocessing
+import pygeoprocessing.geoprocessing
 import pygeoprocessing.routing
 import taskgraph
 
@@ -97,6 +98,7 @@ def _warp_and_wgs84_area_scale(
         interpolation_alg, clip_bb, watershed_vector_path, watershed_fid,
         working_dir):
     base_raster_info = pygeoprocessing.get_raster_info(base_raster_path)
+    model_raster_info = pygeoprocessing.get_raster_info(model_raster_path)
     clipped_base_path = '%sclip_%s' % os.path.splitext(target_raster_path)
     pygeoprocessing.warp_raster(
         base_raster_path, base_raster_info['pixel_size'],
@@ -107,13 +109,49 @@ def _warp_and_wgs84_area_scale(
             'mask_vector_where_filter': f'"FID"={watershed_fid}'},
         working_dir=working_dir)
 
-    pygeoprocessing.new_raster_from_base(
-        model_raster_path, target_raster_path, gdal.GDT_Float32, [-1.0])
-    pygeoprocessing.stitch_rasters(
-        [(clipped_base_path, 1)],
-        [interpolation_alg],
-        (target_raster_path, 1),
-        area_weight_m2_to_wgs84=True)
+    lat_min = base_raster_info['bounding_box'][1]
+    lat_max = base_raster_info['bounding_box'][3]
+    m2_area_per_lat = pygeoprocessing.geoprocessing._create_latitude_m2_area_column(
+        lat_min, lat_max, base_raster_info['raster_size'][1])
+
+    def _mult_op(base_array, base_nodata, scale, datatype):
+        """Scale non-nodata by scale."""
+        result = base_array.astype(datatype)
+        if base_nodata is not None:
+            valid_mask = ~numpy.isclose(base_array, base_nodata)
+        else:
+            valid_mask = numpy.ones(
+                base_array.shape, dtype=bool)
+        result[valid_mask] = result[valid_mask] * scale[valid_mask]
+        return result
+
+    scaled_raster_path = os.path.join(
+        working_dir,
+        f'scaled_{os.path.basename(clipped_base_path)}')
+    base_pixel_area_m2 = model_raster_info['cell_size'][0]**2
+    # multiply the pixels in the resampled raster by the ratio of
+    # the pixel area in the wgs84 units divided by the area of the
+    # original pixel
+    pygeoprocessing.raster_calculator(
+        [(clipped_base_path, 1), (-1, 'raw'),
+         m2_area_per_lat/base_pixel_area_m2,
+         (numpy.float32, 'raw')], _mult_op,
+        scaled_raster_path,
+        gdal.GDT_Float32, -1)
+
+    pygeoprocessing.warp_raster(
+        clipped_base_path, model_raster_info['pixel_size'],
+        target_raster_path, 'near',
+        target_projection_wkt=model_raster_info['projection_wkt'],
+        working_dir=working_dir)
+
+    # pygeoprocessing.new_raster_from_base(
+    #     model_raster_path, target_raster_path, gdal.GDT_Float32, [-1.0])
+    # pygeoprocessing.stitch_rasters(
+    #     [(clipped_base_path, 1)],
+    #     [interpolation_alg],
+    #     (target_raster_path, 1),
+    #     area_weight_m2_to_wgs84=True)
 
 
 def _create_outlet_raster(
