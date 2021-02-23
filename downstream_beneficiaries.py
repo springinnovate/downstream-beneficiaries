@@ -94,11 +94,23 @@ WORKSPACE_DIR = 'workspace'
 
 def _warp_and_wgs84_area_scale(
         base_raster_path, model_raster_path, target_raster_path,
-        interpolation_alg):
+        interpolation_alg, clip_bb, watershed_vector_path, watershed_fid,
+        working_dir):
+    base_raster_info = pygeoprocessing.get_raster_info(base_raster_path)
+    clipped_base_path = '%sclip_%s' % os.path.splitext(target_raster_path)
+    pygeoprocessing.warp_raster(
+        base_raster_path, base_raster_info['pixel_size'],
+        clipped_base_path, 'near',
+        target_bb=clip_bb,
+        vector_mask_options={
+            'mask_vector_path': watershed_vector_path,
+            'mask_vector_where_filter': f'"FID"={watershed_fid}'}
+        'working_dir': working_dir)
+
     pygeoprocessing.new_raster_from_base(
         model_raster_path, target_raster_path, gdal.GDT_Float32, [-1.0])
     pygeoprocessing.stitch_rasters(
-        [(base_raster_path, 1)],
+        [(clipped_base_path, 1)],
         [interpolation_alg],
         (target_raster_path, 1),
         area_weight_m2_to_wgs84=True)
@@ -328,7 +340,8 @@ def process_watershed(
             args=(
                 pop_raster_path, warped_dem_raster_path,
                 aligned_pop_raster_path,
-                'near'),
+                'near', [watershed_envelope[i] for i in [0, 2, 1, 3]],
+                watershed_vector_path, watershed_fid, working_dir),
             dependent_task_list=[warp_dem_task],
             target_path_list=[aligned_pop_raster_path],
             task_name=f'align {aligned_pop_raster_path}')
