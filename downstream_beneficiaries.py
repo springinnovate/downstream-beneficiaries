@@ -86,7 +86,8 @@ WATERSHED_VECTOR_ZIP_URL = 'https://storage.googleapis.com/ipbes-ndr-ecoshard-da
 
 POPULATION_RASTER_URL_MAP = {
     '2000': 'https://storage.googleapis.com/ecoshard-root/population/lspop2000.tif',
-    '2017': 'https://storage.googleapis.com/ecoshard-root/population/lspop2017.tif'}
+    '2017': 'https://storage.googleapis.com/ecoshard-root/population/lspop2017.tif',
+    }
 
 WORKSPACE_DIR = 'workspace'
 
@@ -600,8 +601,8 @@ def main(watershed_ids=None):
     stitch_worker_process_list = []
     for stitch_work_queue, target_stitch_raster_path_list in zip(
             stitch_work_queue_list,
-            [stitch_raster_path_map['2000'],
-             stitch_raster_path_map['2017']]):
+            [stitch_raster_path_map[raster_id]
+             for raster_id in POPULATION_RASTER_URL_MAP.keys()]):
         stitch_worker_process = multiprocessing.Process(
             target=stitch_worker,
             args=(
@@ -628,16 +629,14 @@ def main(watershed_ids=None):
             WATERSHEDS_TO_PROCESS_COUNT += 1
             process_watershed(
                 job_id, watershed_path, int(watershed_fid), dem_vrt_path,
-                [pop_raster_path_map['2000'],
-                 pop_raster_path_map['2017']],
-                [f'''downstream_benficiaries_2000_{watershed_basename}_{
-                     watershed_fid}.tif''',
-                 f'''downstream_benficiaries_2017_{watershed_basename}_{
-                     watershed_fid}.tif'''],
-                [f'''downstream_benficiaries_2000_{watershed_basename}_{
-                     watershed_fid}_normalized.tif''',
-                 f'''downstream_benficiaries_2017_{watershed_basename}_{
-                     watershed_fid}_normalized.tif'''],
+                [pop_raster_path_map[raster_id]
+                 for raster_id in POPULATION_RASTER_URL_MAP.keys()],
+                [f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
+                     watershed_fid}.tif'''
+                 for raster_id in POPULATION_RASTER_URL_MAP.keys()],
+                [f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
+                     watershed_fid}_normalized.tif'''
+                 for raster_id in POPULATION_RASTER_URL_MAP.keys()],
                 stitch_work_queue_list)
     else:
         watershed_worker_process_list = []
@@ -669,16 +668,14 @@ def main(watershed_ids=None):
                 watershed_work_queue.put((
                     process_watershed,
                     (job_id, watershed_path, watershed_fid, dem_vrt_path,
-                     [pop_raster_path_map['2000'],
-                      pop_raster_path_map['2017']],
-                     [f'''downstream_benficiaries_2000_{
-                         watershed_basename}_{watershed_fid}.tif''',
-                      f'''downstream_benficiaries_2017_{
-                         watershed_basename}_{watershed_fid}.tif'''],
-                     [f'''downstream_benficiaries_2000_{
-                         watershed_basename}_{watershed_fid}_normalized.tif''',
-                      f'''downstream_benficiaries_2017_{
-                         watershed_basename}_{watershed_fid}_normalized.tif'''],
+                     [pop_raster_path_map[raster_id]
+                      for raster_id in POPULATION_RASTER_URL_MAP.keys()]
+                     [f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
+                         watershed_fid}.tif'''
+                      for raster_id in POPULATION_RASTER_URL_MAP.keys()],
+                     [f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
+                         watershed_fid}_normalized.tif'''
+                      for raster_id in POPULATION_RASTER_URL_MAP.keys()],
                      stitch_work_queue_list)))
 
         watershed_work_queue.put(None)
