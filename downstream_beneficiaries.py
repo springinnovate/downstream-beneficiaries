@@ -225,8 +225,9 @@ def process_watershed(
     watershed_envelope = watershed_geom.GetEnvelope()
     LOGGER.debug(f'watershed_envelope: {watershed_envelope}')
     # swizzle the envelope order that by default is xmin/xmax/ymin/ymax
+    lat_lng_watershed_bb = [watershed_envelope[i] for i in [0, 2, 1, 3]]
     target_watershed_bb = pygeoprocessing.transform_bounding_box(
-        [watershed_envelope[i] for i in [0, 2, 1, 3]],
+        lat_lng_watershed_bb,
         watershed_info['projection_wkt'],
         epsg_sr.ExportToWkt())
 
@@ -340,7 +341,7 @@ def process_watershed(
             args=(
                 pop_raster_path, warped_dem_raster_path,
                 aligned_pop_raster_path,
-                'near', [watershed_envelope[i] for i in [0, 2, 1, 3]],
+                'near', lat_lng_watershed_bb,
                 watershed_vector_path, watershed_fid, working_dir),
             dependent_task_list=[warp_dem_task],
             target_path_list=[aligned_pop_raster_path],
