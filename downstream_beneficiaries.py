@@ -277,7 +277,7 @@ def process_watershed(
     flow_accum_d8_raster_path = os.path.join(
         working_dir, f'{job_id}_flow_accum.tif')
     flow_dir_d8_task = task_graph.add_task(
-        func=pygeoprocessing.routing.flow_dir_d8,
+        func=pygeoprocessing.routing.flow_accumulation_d8,
         args=((flow_dir_d8_raster_path, 1), flow_accum_d8_raster_path),
         dependent_task_list=[flow_dir_d8_task],
         target_path_list=[flow_accum_d8_raster_path],
