@@ -92,6 +92,18 @@ POPULATION_RASTER_URL_MAP = {
 WORKSPACE_DIR = 'workspace'
 
 
+def _warp_and_wgs84_area_scale(
+        base_raster_path, model_raster_path, target_raster_path,
+        interpolation_alg):
+    pygeoprocessing.new_raster_from_base(
+        model_raster_path, target_raster_path, gdal.GDT_Float32, [-1.0])
+    pygeoprocessing.stitch_rasters(
+        [(base_raster_path, 1)],
+        [interpolation_alg],
+        (target_raster_path, 1),
+        area_weight_m2_to_wgs84=True)
+
+
 def _create_outlet_raster(
         outlet_vector_path, base_raster_path, target_outlet_raster_path):
     """Create a raster that has 1s where outlet exists and 0 everywhere else.
@@ -312,17 +324,12 @@ def process_watershed(
                 os.path.splitext(pop_raster_path)[0])}.tif''')
 
         pop_warp_task = task_graph.add_task(
-            func=pygeoprocessing.warp_raster,
+            func=_warp_and_wgs84_area_scale,
             args=(
-                pop_raster_path, target_pixel_size, aligned_pop_raster_path,
+                pop_raster_path, warped_dem_raster_path,
+                aligned_pop_raster_path,
                 'near'),
-            kwargs={
-                'target_bb': target_watershed_bb,
-                'target_projection_wkt': epsg_sr.ExportToWkt(),
-                'vector_mask_options': {
-                    'mask_vector_path': watershed_vector_path,
-                    'mask_vector_where_filter': f'"FID"={watershed_fid}'},
-                'working_dir': working_dir},
+            dependent_task_list=[warp_dem_task],
             target_path_list=[aligned_pop_raster_path],
             task_name=f'align {aligned_pop_raster_path}')
 
