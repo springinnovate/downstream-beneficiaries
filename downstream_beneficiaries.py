@@ -104,7 +104,7 @@ def _warp_and_wgs84_area_scale(
         target_bb=clip_bb,
         vector_mask_options={
             'mask_vector_path': watershed_vector_path,
-            'mask_vector_where_filter': f'"FID"={watershed_fid}'}
+            'mask_vector_where_filter': f'"FID"={watershed_fid}'},
         working_dir=working_dir)
 
     pygeoprocessing.new_raster_from_base(
