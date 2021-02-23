@@ -342,7 +342,8 @@ def process_watershed(
 
         normalize_by_dist_task.join()
         stitch_queue.put(
-            (target_beneficiaries_path, target_normalized_beneficiaries_path,
+            ([target_beneficiaries_path,
+              target_normalized_beneficiaries_path],
              working_dir, job_id))
 
     task_graph.close()
