@@ -86,8 +86,8 @@ DEM_ZIP_URL = 'https://storage.googleapis.com/global-invest-sdr-data/global_dem_
 WATERSHED_VECTOR_ZIP_URL = 'https://storage.googleapis.com/ipbes-ndr-ecoshard-data/watersheds_globe_HydroSHEDS_15arcseconds_blake2b_14ac9c77d2076d51b0258fd94d9378d4.zip'
 
 POPULATION_RASTER_URL_MAP = {
-    '2000': 'https://storage.googleapis.com/ecoshard-root/population/lspop2000.tif',
-    '2017': 'https://storage.googleapis.com/ecoshard-root/population/lspop2017.tif',
+    '2000': 'https://storage.googleapis.com/ecoshard-root/population/lspop2000_md5_79a872e3480c998a4a8bfa28feee228c.tif',
+    '2017': 'https://storage.googleapis.com/ecoshard-root/population/lspop2017_md5_2e8da6824e4d67f8ea321ba4b585a3a5.tif',
     }
 
 WORKSPACE_DIR = 'workspace'
@@ -416,7 +416,9 @@ def process_watershed(
 
         normalize_by_dist_task = task_graph.add_task(
             func=normalize,
-            args=(target_beneficiaries_path, target_downstream_dist_path, target_normalized_beneficiaries_path),
+            args=(
+                target_beneficiaries_path, target_downstream_dist_path,
+                target_normalized_beneficiaries_path),
             dependent_task_list=[downstream_dist_task, downstream_bene_task],
             target_path_list=[target_normalized_beneficiaries_path],
             task_name=(
