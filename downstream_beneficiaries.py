@@ -111,8 +111,10 @@ def _warp_and_wgs84_area_scale(
 
     lat_min = base_raster_info['bounding_box'][1]
     lat_max = base_raster_info['bounding_box'][3]
+    _, n_rows = pygeoprocessing.get_raster_info(
+        clipped_base_path)['raster_size']
     m2_area_per_lat = pygeoprocessing.geoprocessing._create_latitude_m2_area_column(
-        lat_min, lat_max, model_raster_info['raster_size'][1])
+        lat_min, lat_max, n_rows)
 
     def _mult_op(base_array, base_nodata, scale, datatype):
         """Scale non-nodata by scale."""
