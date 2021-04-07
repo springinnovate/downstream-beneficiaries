@@ -543,7 +543,7 @@ def stitch_worker(
                 [(target_beneficiaries_path, 1)], ['near'],
                 (target_stitch_raster_path, 1),
                 area_weight_m2_to_wgs84=True,
-                overlap_algorithm='sum')
+                overlap_algorithm='add')
             if clean_result:
                 os.remove(target_beneficiaries_path)
         stitch_done_queue.put((working_dir, job_id))
