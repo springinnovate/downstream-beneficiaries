@@ -541,7 +541,9 @@ def stitch_worker(
                 target_stitch_raster_path_list):
             pygeoprocessing.stitch_rasters(
                 [(target_beneficiaries_path, 1)], ['near'],
-                (target_stitch_raster_path, 1))
+                (target_stitch_raster_path, 1),
+                area_weight_m2_to_wgs84=True,
+                overlap_algorithm='sum')
             if clean_result:
                 os.remove(target_beneficiaries_path)
         stitch_done_queue.put((working_dir, job_id))
@@ -623,7 +625,7 @@ def main(watershed_ids=None):
         for stitch_path in stitch_raster_path_map[pop_id]:
             if not os.path.exists(stitch_path):
                 driver = gdal.GetDriverByName('GTiff')
-                cell_size = 10./3600.
+                cell_size = 10./3600. * 2  # do this for Nyquist theorem
                 n_cols = int(360./cell_size)
                 n_rows = int(180./cell_size)
                 LOGGER.info(f'**** creating raster of size {n_cols} by {n_rows}')
