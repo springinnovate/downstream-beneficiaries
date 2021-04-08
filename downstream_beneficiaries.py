@@ -1,5 +1,6 @@
 """Calculate downstream beneficiaries."""
 import argparse
+import collections
 import glob
 import logging
 import math
@@ -247,7 +248,6 @@ def process_watershed(
 
     task_graph = taskgraph.TaskGraph(working_dir, -1)
 
-    LOGGER.info(f'clip/reproject DEM for {job_id}')
     watershed_info = pygeoprocessing.get_vector_info(watershed_vector_path)
     watershed_vector = gdal.OpenEx(watershed_vector_path, gdal.OF_VECTOR)
     watershed_layer = watershed_vector.GetLayer()
@@ -260,10 +260,8 @@ def process_watershed(
     epsg_code = int('32%d%02d' % (lat_code, utm_code))
     epsg_sr = osr.SpatialReference()
     epsg_sr.ImportFromEPSG(epsg_code)
-    LOGGER.debug(f'epsg: {epsg_code} for {job_id}')
 
     watershed_envelope = watershed_geom.GetEnvelope()
-    LOGGER.debug(f'watershed_envelope: {watershed_envelope}')
     # swizzle the envelope order that by default is xmin/xmax/ymin/ymax
     lat_lng_watershed_bb = [watershed_envelope[i] for i in [0, 2, 1, 3]]
     target_watershed_bb = pygeoprocessing.transform_bounding_box(
@@ -296,7 +294,6 @@ def process_watershed(
         target_path_list=[warped_dem_raster_path],
         task_name=f'clip and warp dem to {warped_dem_raster_path}')
 
-    LOGGER.debug('route dem')
     filled_dem_raster_path = os.path.join(
         working_dir, f'{job_id}_filled_dem.tif')
     fill_pits_task = task_graph.add_task(
@@ -367,9 +364,6 @@ def process_watershed(
             pop_raster_path_list, target_beneficiaries_path_list,
             target_normalized_beneficiaries_path_list,
             target_stitch_work_queue_list):
-        LOGGER.debug(
-            f'route downstream beneficiaries to '
-            f'{target_beneficiaries_path_list}')
 
         aligned_pop_raster_path = os.path.join(
             working_dir,
@@ -529,24 +523,45 @@ def stitch_worker(
         stitch_work_queue, target_stitch_raster_path_list,
         stitch_done_queue, clean_result):
     """Take jobs from stitch work queue and stitch into target."""
+    stitch_buffer = collections.defaultdict(list)
+    done_buffer = []
+    n_buffered = 0
     while True:
         payload = stitch_work_queue.get()
         if payload is None:
             stitch_work_queue.put(None)
             stitch_done_queue.put(None)
+        else:
+            target_beneficiaries_path_list, working_dir, job_id = payload
+            done_buffer.append((working_dir, job_id))
+            for target_beneficiaries_path, target_stitch_raster_path in zip(
+                    target_beneficiaries_path_list,
+                    target_stitch_raster_path_list):
+                stitch_buffer[target_stitch_raster_path].append(
+                    target_beneficiaries_path)
+            n_buffered += 1
+        if n_buffered > 100 or payload is None:
+            for target_stitch_raster_path in stitch_buffer:
+                stitch_raster_path_list = [
+                    (path, 1) for path in
+                    stitch_buffer[target_stitch_raster_path]]
+                pygeoprocessing.stitch_rasters(
+                    stitch_raster_path_list, ['near']*len(
+                        stitch_raster_path_list),
+                    (target_stitch_raster_path, 1),
+                    area_weight_m2_to_wgs84=True,
+                    overlap_algorithm='add')
+
+                if clean_result:
+                    for path in stitch_buffer[target_stitch_raster_path]:
+                        os.remove(target_beneficiaries_path)
+            for working_dir, job_id in done_buffer:
+                stitch_done_queue.put((working_dir, job_id))
+            stitch_buffer = collections.defaultdict(list)
+            done_buffer = []
+            n_buffered = 0
+        if payload is None:
             break
-        target_beneficiaries_path_list, working_dir, job_id = payload
-        for target_beneficiaries_path, target_stitch_raster_path in zip(
-                target_beneficiaries_path_list,
-                target_stitch_raster_path_list):
-            pygeoprocessing.stitch_rasters(
-                [(target_beneficiaries_path, 1)], ['near'],
-                (target_stitch_raster_path, 1),
-                area_weight_m2_to_wgs84=True,
-                overlap_algorithm='add')
-            if clean_result:
-                os.remove(target_beneficiaries_path)
-        stitch_done_queue.put((working_dir, job_id))
 
 
 def main(watershed_ids=None):
