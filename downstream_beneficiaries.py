@@ -92,6 +92,9 @@ POPULATION_RASTER_URL_MAP = {
     }
 
 WORKSPACE_DIR = 'workspace'
+WATERSHED_WORKSPACE_DIR = os.path.join(WORKSPACE_DIR, 'watershed_workspace')
+for dir_path in [WORKSPACE_DIR, WATERSHED_WORKSPACE_DIR]:
+    os.makedirs(dir_path, exist_ok=True)
 
 
 def _warp_and_wgs84_area_scale(
