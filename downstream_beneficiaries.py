@@ -476,6 +476,7 @@ def job_complete_worker(completed_work_queue, work_db_path, clean_result):
         uncommited_count = 0
         working_jobs = set()
         global WATERSHEDS_TO_PROCESS_COUNT
+        LOGGER.info(f'started job complete worker, initial watersheds {WATERSHEDS_TO_PROCESS_COUNT}')
         while True:
             payload = completed_work_queue.get()
             if payload is None:
@@ -509,6 +510,7 @@ def job_complete_worker(completed_work_queue, work_db_path, clean_result):
         connection = None
     except Exception:
         LOGGER.exception('error on job complete worker')
+        raise
 
 
 def general_worker(work_queue):
