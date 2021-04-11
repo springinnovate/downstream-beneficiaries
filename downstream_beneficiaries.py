@@ -471,41 +471,44 @@ def get_completed_job_id_set(db_path):
 
 def job_complete_worker(completed_work_queue, work_db_path, clean_result):
     """Update the database with completed work."""
-    connection = sqlite3.connect(work_db_path)
-    uncommited_count = 0
-    working_jobs = set()
-    global WATERSHEDS_TO_PROCESS_COUNT
-    while True:
-        payload = completed_work_queue.get()
-        if payload is None:
-            LOGGER.info('got None in completed work, terminating')
-            break
-        working_dir, job_id = payload
-        if job_id not in working_jobs:
-            working_jobs.add(job_id)
-            continue
-        working_jobs.remove(job_id)
-        WATERSHEDS_TO_PROCESS_COUNT -= 1
-        if clean_result:
-            shutil.rmtree(working_dir)
-        cursor = connection.execute(
-            f"""
-            INSERT INTO completed_job_ids VALUES ("{job_id}")
-            """)
-        cursor.close()
-        LOGGER.info(f'done with {job_id}')
-        uncommited_count += 1
-        if uncommited_count > 100:
-            connection.commit()
-            uncommited_count = 0
-            LOGGER.info(
-                'remaining watersheds to process: '
-                f'{WATERSHEDS_TO_PROCESS_COUNT}')
+    try:
+        connection = sqlite3.connect(work_db_path)
+        uncommited_count = 0
+        working_jobs = set()
+        global WATERSHEDS_TO_PROCESS_COUNT
+        while True:
+            payload = completed_work_queue.get()
+            if payload is None:
+                LOGGER.info('got None in completed work, terminating')
+                break
+            working_dir, job_id = payload
+            if job_id not in working_jobs:
+                working_jobs.add(job_id)
+                continue
+            working_jobs.remove(job_id)
+            WATERSHEDS_TO_PROCESS_COUNT -= 1
+            if clean_result:
+                shutil.rmtree(working_dir)
+            cursor = connection.execute(
+                f"""
+                INSERT INTO completed_job_ids VALUES ("{job_id}")
+                """)
+            cursor.close()
+            LOGGER.info(f'done with {job_id}')
+            uncommited_count += 1
+            if uncommited_count > 100:
+                connection.commit()
+                uncommited_count = 0
+                LOGGER.info(
+                    'remaining watersheds to process: '
+                    f'{WATERSHEDS_TO_PROCESS_COUNT}')
 
-    connection.commit()
-    connection.close()
-    cursor = None
-    connection = None
+        connection.commit()
+        connection.close()
+        cursor = None
+        connection = None
+    except Exception:
+        LOGGER.exception('error on job complete worker')
 
 
 def general_worker(work_queue):
