@@ -486,6 +486,7 @@ def job_complete_worker(completed_work_queue, work_db_path, clean_result):
                 LOGGER.info('got None in completed work, terminating')
                 break
             working_dir, job_id = payload
+            LOGGER.debug(f'got a payload for {job_id}')
             if job_id not in working_jobs:
                 working_jobs.add(job_id)
                 continue
