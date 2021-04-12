@@ -546,6 +546,10 @@ def stitch_worker(
             for target_beneficiaries_path, target_stitch_raster_path in zip(
                     target_beneficiaries_path_list,
                     target_stitch_raster_path_list):
+                if not os.path.exists(target_beneficiaries_path):
+                    message = f'{target_beneficiaries_path} does not exist on disk when stitching into {target_stitch_raster_path} also working dir is {working_dir}'
+                    LOGGER.error(message)
+                    raise ValueError(message)
                 stitch_buffer[target_stitch_raster_path].append(
                     target_beneficiaries_path)
             n_buffered += 1
