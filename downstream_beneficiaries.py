@@ -307,23 +307,23 @@ def process_watershed(
         target_path_list=[filled_dem_raster_path],
         task_name=f'fill dem pits to {filled_dem_raster_path}')
 
-    flow_dir_d8_raster_path = os.path.join(
-        working_dir, f'{job_id}_flow_dir_d8.tif')
-    flow_dir_d8_task = task_graph.add_task(
-        func=pygeoprocessing.routing.flow_dir_d8,
+    flow_dir_mfd_raster_path = os.path.join(
+        working_dir, f'{job_id}_flow_dir_mfd.tif')
+    flow_dir_mfd_task = task_graph.add_task(
+        func=pygeoprocessing.routing.flow_dir_mfd,
         args=(
-            (filled_dem_raster_path, 1), flow_dir_d8_raster_path),
+            (filled_dem_raster_path, 1), flow_dir_mfd_raster_path),
         kwargs={'working_dir': working_dir},
         dependent_task_list=[fill_pits_task],
-        target_path_list=[flow_dir_d8_raster_path],
-        task_name=f'calc flow dir for {flow_dir_d8_raster_path}')
+        target_path_list=[flow_dir_mfd_raster_path],
+        task_name=f'calc flow dir for {flow_dir_mfd_raster_path}')
 
     outlet_vector_path = os.path.join(
         working_dir, f'{job_id}_outlet_vector.gpkg')
     detect_outlets_task = task_graph.add_task(
         func=pygeoprocessing.routing.detect_outlets,
-        args=((flow_dir_d8_raster_path, 1), outlet_vector_path),
-        dependent_task_list=[flow_dir_d8_task],
+        args=((flow_dir_mfd_raster_path, 1), outlet_vector_path),
+        dependent_task_list=[flow_dir_mfd_task],
         target_path_list=[outlet_vector_path],
         task_name=f'detect outlets {outlet_vector_path}')
 
@@ -332,31 +332,19 @@ def process_watershed(
     create_outlet_raster_task = task_graph.add_task(
         func=_create_outlet_raster,
         args=(
-            outlet_vector_path, flow_dir_d8_raster_path, outlet_raster_path),
+            outlet_vector_path, flow_dir_mfd_raster_path, outlet_raster_path),
         dependent_task_list=[detect_outlets_task],
         target_path_list=[outlet_raster_path],
         task_name=f'create outlet raster {outlet_raster_path}')
 
-    flow_accum_d8_raster_path = os.path.join(
+    flow_accum_mfd_raster_path = os.path.join(
         working_dir, f'{job_id}_flow_accum.tif')
-    flow_dir_d8_task = task_graph.add_task(
-        func=pygeoprocessing.routing.flow_accumulation_d8,
-        args=((flow_dir_d8_raster_path, 1), flow_accum_d8_raster_path),
-        dependent_task_list=[flow_dir_d8_task],
-        target_path_list=[flow_accum_d8_raster_path],
-        task_name=f'calc flow dir for {flow_accum_d8_raster_path}')
-
-    target_stream_vector_path = os.path.join(working_dir, f'{job_id}_stream.gpkg')
-    strahler_stream_task = task_graph.add_task(
-        func=pygeoprocessing.routing.extract_strahler_streams_d8,
-        args=(
-            (flow_dir_d8_raster_path, 1),
-            (flow_accum_d8_raster_path, 1),
-            (filled_dem_raster_path, 1),
-            target_stream_vector_path),
-        dependent_task_list=[flow_dir_d8_task],
-        target_path_list=[target_stream_vector_path],
-        task_name=f'extract streams to {target_stream_vector_path}')
+    flow_dir_mfd_task = task_graph.add_task(
+        func=pygeoprocessing.routing.flow_accumulation_mfd,
+        args=((flow_dir_mfd_raster_path, 1), flow_accum_mfd_raster_path),
+        dependent_task_list=[flow_dir_mfd_task],
+        target_path_list=[flow_accum_mfd_raster_path],
+        task_name=f'calc flow dir for {flow_accum_mfd_raster_path}')
 
     for (pop_raster_path, target_beneficiaries_path,
          target_normalized_beneficiaries_path,
@@ -382,14 +370,14 @@ def process_watershed(
             task_name=f'align {aligned_pop_raster_path}')
 
         downstream_bene_task = task_graph.add_task(
-            func=pygeoprocessing.routing.distance_to_channel_d8,
+            func=pygeoprocessing.routing.distance_to_channel_mfd,
             args=(
-                (flow_dir_d8_raster_path, 1), (outlet_raster_path, 1),
+                (flow_dir_mfd_raster_path, 1), (outlet_raster_path, 1),
                 target_beneficiaries_path),
             kwargs={
                 'weight_raster_path_band': (aligned_pop_raster_path, 1)},
             dependent_task_list=[
-                pop_warp_task, create_outlet_raster_task, flow_dir_d8_task],
+                pop_warp_task, create_outlet_raster_task, flow_dir_mfd_task],
             target_path_list=[target_beneficiaries_path],
             task_name=(
                 'calc downstream beneficiaries for '
@@ -399,12 +387,12 @@ def process_watershed(
             working_dir, f'''d8_dist_{job_id}_{os.path.basename(
                 os.path.splitext(target_beneficiaries_path)[0])}.tif''')
         downstream_dist_task = task_graph.add_task(
-            func=pygeoprocessing.routing.distance_to_channel_d8,
+            func=pygeoprocessing.routing.distance_to_channel_mfd,
             args=(
-                (flow_dir_d8_raster_path, 1), (outlet_raster_path, 1),
+                (flow_dir_mfd_raster_path, 1), (outlet_raster_path, 1),
                 target_downstream_dist_path),
             dependent_task_list=[
-                pop_warp_task, create_outlet_raster_task, flow_dir_d8_task],
+                pop_warp_task, create_outlet_raster_task, flow_dir_mfd_task],
             target_path_list=[target_downstream_dist_path],
             task_name=(
                 'calc downstream dist for '
@@ -435,13 +423,6 @@ def process_watershed(
 def get_completed_job_id_set(db_path):
     """Return set of completed jobs, or initialize if not set."""
     if not os.path.exists(db_path):
-        sql_create_projects_table_script = (
-            """
-            CREATE TABLE completed_job_ids (
-                job_id TEXT NOT NULL,
-                PRIMARY KEY (job_id)
-            );
-            """)
         connection = sqlite3.connect(db_path)
         cursor = connection.execute(
             """
@@ -775,7 +756,6 @@ def main(watershed_ids=None):
                          watershed_fid}_normalized.tif''')
                       for raster_id in POPULATION_RASTER_URL_MAP.keys()],
                      stitch_work_queue_list)))
-                break
 
         watershed_work_queue.put(None)
         for watershed_worker in watershed_worker_process_list:
