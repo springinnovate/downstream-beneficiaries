@@ -614,7 +614,7 @@ def main(watershed_ids=None):
         args=(DEM_ZIP_URL, dem_download_dir),
         target_path_list=[
             os.path.join(
-                dem_download_dir, 'global_dem_3s', f'{basename_dem}.vrt')],
+                dem_download_dir, os.path.basename(DEM_ZIP_URL))],
         task_name='download and unzip dem')
 
     dem_tile_dir = os.path.join(dem_download_dir, 'global_dem_3s')
