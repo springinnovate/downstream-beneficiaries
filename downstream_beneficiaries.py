@@ -526,6 +526,7 @@ def stitch_worker(
         stitch_work_queue, target_stitch_raster_path_list,
         stitch_done_queue, clean_result):
     """Take jobs from stitch work queue and stitch into target."""
+    n_to_buffer = 1000
     stitch_buffer = collections.defaultdict(list)
     done_buffer = []
     n_buffered = 0
@@ -547,7 +548,7 @@ def stitch_worker(
                 stitch_buffer[target_stitch_raster_path].append(
                     target_beneficiaries_path)
             n_buffered += 1
-        if n_buffered > 100 or payload is None:
+        if n_buffered > n_to_buffer or payload is None:
             LOGGER.info(
                 f'about to stitch {n_buffered} into '
                 f'{target_stitch_raster_path}')
@@ -573,7 +574,7 @@ def stitch_worker(
             elapsed_time = time.time() - start_time
             LOGGER.info(
                 f'took {time.time()-start_time:.2f}s to stitch '
-                f'{n_buffered/elapsed_time:.2} per sec')
+                f'{n_buffered/elapsed_time:.2f} per sec')
             n_buffered = 0
         if payload is None:
             break
