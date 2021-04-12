@@ -498,8 +498,8 @@ def job_complete_worker(completed_work_queue, work_db_path, clean_result):
 
                 LOGGER.info(
                     f'remaining watersheds to process: '
-                    f'{WATERSHEDS_TO_PROCESS_COUNT}\n'
-                    f'process/sec: {watersheds_per_sec:.1f}\n'
+                    f'{WATERSHEDS_TO_PROCESS_COUNT} - '
+                    f'process/sec: {watersheds_per_sec:.1f} - '
                     f'time left: {remaining_time_h}:{remaining_time_m:02d}:{remaining_time_s:04.1f}')
 
         connection.commit()
