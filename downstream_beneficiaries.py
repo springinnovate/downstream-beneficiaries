@@ -564,8 +564,7 @@ def stitch_worker(
 
                 if clean_result:
                     for path in stitch_buffer[target_stitch_raster_path]:
-                        LOGGER.warn(f'in stitch rasters about to remove {path}')
-                        os.remove(target_beneficiaries_path)
+                        os.remove(path)
             for working_dir, job_id in done_buffer:
                 stitch_done_queue.put((working_dir, job_id))
             stitch_buffer = collections.defaultdict(list)
