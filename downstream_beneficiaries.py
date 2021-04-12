@@ -11,6 +11,7 @@ import shutil
 import sqlite3
 import subprocess
 import threading
+import time
 from inspect import signature
 from functools import wraps
 from multiprocessing import managers
@@ -453,8 +454,10 @@ def get_completed_job_id_set(db_path):
 def job_complete_worker(completed_work_queue, work_db_path, clean_result):
     """Update the database with completed work."""
     try:
+        start_time = time.time()
         connection = sqlite3.connect(work_db_path)
         uncommited_count = 0
+        processed_count = 0
         working_jobs = set()
         global WATERSHEDS_TO_PROCESS_COUNT
         LOGGER.info(f'started job complete worker, initial watersheds {WATERSHEDS_TO_PROCESS_COUNT}')
@@ -481,10 +484,23 @@ def job_complete_worker(completed_work_queue, work_db_path, clean_result):
             uncommited_count += 1
             if uncommited_count > 100:
                 connection.commit()
+                processed_count += uncommited_count
                 uncommited_count = 0
+                current_time = time.time()
+                watersheds_per_sec = processed_count / (
+                    current_time-start_time)
+                remaining_time_s = (
+                    watersheds_per_sec * WATERSHEDS_TO_PROCESS_COUNT)
+                remaining_time_h = remaining_time_s // 3600
+                remaining_time_s -= remaining_time_h * 3600
+                remaining_time_m = remaining_time_s // 60
+                remaining_time_s -= remaining_time_m * 60
+
                 LOGGER.info(
-                    'remaining watersheds to process: '
-                    f'{WATERSHEDS_TO_PROCESS_COUNT}')
+                    f'remaining watersheds to process: '
+                    f'{WATERSHEDS_TO_PROCESS_COUNT}\n'
+                    f'process/sec: {watersheds_per_sec:.1f}\n'
+                    f'time left: {remaining_time_h}:{remaining_time_m:02d}:{remaining_time_s:04.1f}')
 
         connection.commit()
         connection.close()
@@ -717,7 +733,7 @@ def main(watershed_ids=None):
     else:
         watershed_worker_process_list = []
         for _ in range(multiprocessing.cpu_count()):
-            watershed_worker_process = threading.Thread(
+            watershed_worker_process = multiprocessing.Process(
                 target=general_worker,
                 args=(watershed_work_queue,))
             watershed_worker_process.start()
