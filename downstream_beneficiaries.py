@@ -491,9 +491,9 @@ def job_complete_worker(completed_work_queue, work_db_path, clean_result):
                     current_time-start_time)
                 remaining_time_s = (
                     watersheds_per_sec * WATERSHEDS_TO_PROCESS_COUNT)
-                remaining_time_h = remaining_time_s // 3600
+                remaining_time_h = int(remaining_time_s // 3600)
                 remaining_time_s -= remaining_time_h * 3600
-                remaining_time_m = remaining_time_s // 60
+                remaining_time_m = int(remaining_time_s // 60)
                 remaining_time_s -= remaining_time_m * 60
 
                 LOGGER.info(
