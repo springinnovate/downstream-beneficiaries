@@ -567,7 +567,7 @@ def stitch_worker(
                         os.remove(path)
             start_time = time.time()
             for working_dir, job_id in done_buffer:
-                stitch_done_queue.put(done_buffer)
+                stitch_done_queue.put((working_dir, job_id))
             LOGGER.info(f'took {time.time()-start_time:.2f}s to put done queue')
             stitch_buffer = collections.defaultdict(list)
             done_buffer = []
