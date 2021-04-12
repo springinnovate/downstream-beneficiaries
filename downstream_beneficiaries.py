@@ -756,7 +756,6 @@ def main(watershed_ids=None):
                          watershed_fid}_normalized.tif''')
                       for raster_id in POPULATION_RASTER_URL_MAP.keys()],
                      stitch_work_queue_list)))
-                break
 
         watershed_work_queue.put(None)
         for watershed_worker in watershed_worker_process_list:
