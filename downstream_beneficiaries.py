@@ -548,6 +548,9 @@ def stitch_worker(
                     target_beneficiaries_path)
             n_buffered += 1
         if n_buffered > 100 or payload is None:
+            LOGGER.info(
+                f'about to stitch {n_buffered} into '
+                f'{target_stitch_raster_path}')
             for target_stitch_raster_path in stitch_buffer:
                 stitch_raster_path_list = [
                     (path, 1) for path in
