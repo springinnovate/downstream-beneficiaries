@@ -322,7 +322,7 @@ def process_watershed(
         working_dir, f'{job_id}_outlet_vector.gpkg')
     detect_outlets_task = task_graph.add_task(
         func=pygeoprocessing.routing.detect_outlets,
-        args=((flow_dir_mfd_raster_path, 1), outlet_vector_path),
+        args=((flow_dir_mfd_raster_path, 1), 'mfd', outlet_vector_path),
         dependent_task_list=[flow_dir_mfd_task],
         target_path_list=[outlet_vector_path],
         task_name=f'detect outlets {outlet_vector_path}')
