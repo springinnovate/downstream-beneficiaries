@@ -34,7 +34,7 @@ logging.basicConfig(
         '%(name)s [%(funcName)s:%(lineno)d] %(message)s'))
 LOGGER = logging.getLogger(__name__)
 logging.getLogger('taskgraph').setLevel(logging.INFO)
-logging.getLogger('pygeoprocessing').setLevel(logging.DEBUG)
+logging.getLogger('pygeoprocessing').setLevel(logging.INFO)
 
 
 # Backport of https://github.com/python/cpython/pull/4819
