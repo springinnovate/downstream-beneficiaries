@@ -565,8 +565,10 @@ def stitch_worker(
                 if clean_result:
                     for path in stitch_buffer[target_stitch_raster_path]:
                         os.remove(path)
+            start_time = time.time()
             for working_dir, job_id in done_buffer:
-                stitch_done_queue.put((working_dir, job_id))
+                stitch_done_queue.put(done_buffer)
+            LOGGER.info(f'took {time.time()-start_time:.2f}s to put done queue')
             stitch_buffer = collections.defaultdict(list)
             done_buffer = []
             n_buffered = 0
