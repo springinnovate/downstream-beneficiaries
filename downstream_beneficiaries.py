@@ -240,14 +240,11 @@ def process_watershed(
     Return:
         None.
     """
-    LOGGER.debug(f'create working directory for {job_id}')
 
     working_dir = os.path.join(
         os.path.dirname(target_beneficiaries_path_list[0]), job_id)
-    try:
-        os.makedirs(working_dir)
-    except OSError:
-        LOGGER.warning(f'{working_dir} already exists')
+    os.makedirs(working_dir, exist_ok=True)
+    LOGGER.debug(f'create working directory for {job_id} at {working_dir}')
 
     task_graph = taskgraph.TaskGraph(working_dir, -1)
 
@@ -567,6 +564,7 @@ def stitch_worker(
 
                 if clean_result:
                     for path in stitch_buffer[target_stitch_raster_path]:
+                        LOGGER.warn(f'in stitch rasters about to remove {path}')
                         os.remove(target_beneficiaries_path)
             for working_dir, job_id in done_buffer:
                 stitch_done_queue.put((working_dir, job_id))
@@ -739,7 +737,7 @@ def main(watershed_ids=None):
     else:
         watershed_worker_process_list = []
         for _ in range(multiprocessing.cpu_count()):
-            watershed_worker_process = multiprocessing.Process(
+            watershed_worker_process = threading.Thread(
                 target=general_worker,
                 args=(watershed_work_queue,))
             watershed_worker_process.start()
