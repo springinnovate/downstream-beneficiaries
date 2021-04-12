@@ -590,8 +590,8 @@ def main(watershed_ids=None):
     LOGGER.info('create new taskgraph')
     task_graph = taskgraph.TaskGraph(WORKSPACE_DIR, -1)
 
-    dem_download_dir = os.path.join(
-        WORKSPACE_DIR, os.path.basename(os.path.splitext(DEM_ZIP_URL)[0]))
+    basename_dem = os.path.basename(os.path.splitext(DEM_ZIP_URL)[0])
+    dem_download_dir = os.path.join(WORKSPACE_DIR, basename_dem)
     watershed_download_dir = os.path.join(
         WORKSPACE_DIR, os.path.basename(os.path.splitext(
             WATERSHED_VECTOR_ZIP_URL)[0]))
@@ -612,6 +612,9 @@ def main(watershed_ids=None):
     download_dem_task = task_graph.add_task(
         func=ecoshard.download_and_unzip,
         args=(DEM_ZIP_URL, dem_download_dir),
+        target_path_list=[
+            os.path.join(
+                dem_download_dir, 'global_dem_3s', f'{basename_dem}.vrt')],
         task_name='download and unzip dem')
 
     dem_tile_dir = os.path.join(dem_download_dir, 'global_dem_3s')
