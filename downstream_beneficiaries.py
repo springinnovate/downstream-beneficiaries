@@ -696,7 +696,7 @@ def main(watershed_ids=None):
             stitch_work_queue_list,
             [stitch_raster_path_map[raster_id]
              for raster_id in POPULATION_RASTER_URL_MAP.keys()]):
-        stitch_worker_process = multiprocessing.Process(
+        stitch_worker_process = threading.Thread(
             target=stitch_worker,
             args=(
                 stitch_work_queue, target_stitch_raster_path_list,
@@ -719,16 +719,18 @@ def main(watershed_ids=None):
                 os.path.splitext(watershed_path)[0])}_{watershed_fid}'''
             if job_id in completed_job_set:
                 continue
+            workspace_dir = os.path.join(WATERSHED_WORKSPACE_DIR, job_id)
+            os.makedirs(workspace_dir, exist_ok=True)
             WATERSHEDS_TO_PROCESS_COUNT += 1
             process_watershed(
                 job_id, watershed_path, int(watershed_fid), dem_vrt_path,
                 [pop_raster_path_map[raster_id]
                  for raster_id in POPULATION_RASTER_URL_MAP.keys()],
-                [f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
-                     watershed_fid}.tif'''
+                [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
+                     watershed_fid}.tif''')
                  for raster_id in POPULATION_RASTER_URL_MAP.keys()],
-                [f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
-                     watershed_fid}_normalized.tif'''
+                [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
+                     watershed_fid}_normalized.tif''')
                  for raster_id in POPULATION_RASTER_URL_MAP.keys()],
                 stitch_work_queue_list)
     else:
@@ -758,18 +760,22 @@ def main(watershed_ids=None):
                 if job_id in completed_job_set:
                     continue
                 WATERSHEDS_TO_PROCESS_COUNT += 1
+
+                workspace_dir = os.path.join(WATERSHED_WORKSPACE_DIR, job_id)
+                os.makedirs(workspace_dir, exist_ok=True)
                 watershed_work_queue.put((
                     process_watershed,
                     (job_id, watershed_path, watershed_fid, dem_vrt_path,
                      [pop_raster_path_map[raster_id]
                       for raster_id in POPULATION_RASTER_URL_MAP.keys()],
-                     [f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
-                         watershed_fid}.tif'''
+                     [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
+                         watershed_fid}.tif''')
                       for raster_id in POPULATION_RASTER_URL_MAP.keys()],
-                     [f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
-                         watershed_fid}_normalized.tif'''
+                     [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
+                         watershed_fid}_normalized.tif''')
                       for raster_id in POPULATION_RASTER_URL_MAP.keys()],
                      stitch_work_queue_list)))
+                break
 
         watershed_work_queue.put(None)
         for watershed_worker in watershed_worker_process_list:
