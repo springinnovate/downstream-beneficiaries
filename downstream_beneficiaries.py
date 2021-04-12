@@ -35,7 +35,7 @@ logging.basicConfig(
         '%(name)s [%(funcName)s:%(lineno)d] %(message)s'))
 LOGGER = logging.getLogger(__name__)
 logging.getLogger('taskgraph').setLevel(logging.INFO)
-logging.getLogger('pygeoprocessing').setLevel(logging.INFO)
+logging.getLogger('pygeoprocessing').setLevel(logging.WARN)
 
 
 # Backport of https://github.com/python/cpython/pull/4819
@@ -759,7 +759,6 @@ def main(watershed_ids=None):
                 WATERSHEDS_TO_PROCESS_COUNT += 1
 
                 workspace_dir = os.path.join(WATERSHED_WORKSPACE_DIR, job_id)
-                os.makedirs(workspace_dir, exist_ok=True)
                 watershed_work_queue.put((
                     process_watershed,
                     (job_id, watershed_path, watershed_fid, dem_vrt_path,
