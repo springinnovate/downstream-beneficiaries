@@ -47,6 +47,7 @@ logging.getLogger('pygeoprocessing').setLevel(logging.INFO)
 # new argument.
 orig_AutoProxy = managers.AutoProxy
 
+
 @wraps(managers.AutoProxy)
 def AutoProxy(*args, incref=True, manager_owned=False, **kwargs):
     # Create the autoproxy without the manager_owned flag, then
@@ -241,7 +242,6 @@ def process_watershed(
     Return:
         None.
     """
-
     working_dir = os.path.join(
         os.path.dirname(target_beneficiaries_path_list[0]), job_id)
     os.makedirs(working_dir, exist_ok=True)
