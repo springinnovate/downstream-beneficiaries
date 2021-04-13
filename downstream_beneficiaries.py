@@ -565,7 +565,6 @@ def stitch_worker(
         if payload is None:
             LOGGER.debug(f'stitch worker for {target_stitch_raster_path} got DONE signal')
             stitch_work_queue.put(None)
-            stitch_done_queue.put(None)
         else:
             raster_path, working_dir, job_id = payload
             done_buffer.append((working_dir, job_id))
@@ -825,6 +824,7 @@ def main(watershed_ids=None):
         stitch_worker_process.join()
     LOGGER.debug('stitch worker done')
 
+    completed_work_queue.put(None)
     job_complete_worker_thread.join()
     LOGGER.info('all done')
 
