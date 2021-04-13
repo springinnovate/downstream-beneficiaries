@@ -526,7 +526,7 @@ def stitch_worker(
         stitch_work_queue, target_stitch_raster_path_list,
         stitch_done_queue, clean_result):
     """Take jobs from stitch work queue and stitch into target."""
-    n_to_buffer = 1000
+    n_to_buffer = 100
     stitch_buffer = collections.defaultdict(list)
     done_buffer = []
     n_buffered = 0
@@ -562,7 +562,7 @@ def stitch_worker(
                         stitch_raster_path_list),
                     (target_stitch_raster_path, 1),
                     area_weight_m2_to_wgs84=True,
-                    overlap_algorithm='add')
+                    overlap_algorithm='etch')
 
                 if clean_result:
                     for path in stitch_buffer[target_stitch_raster_path]:
