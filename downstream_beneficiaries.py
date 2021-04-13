@@ -803,7 +803,6 @@ def main(watershed_ids=None):
                          watershed_fid}_normalized.tif''')
                       for raster_id in POPULATION_RASTER_URL_MAP.keys()],
                      stitch_work_queue_list)))
-                break
 
         LOGGER.debug('waiting for watershed workers to be done')
         watershed_work_queue.put(None)
