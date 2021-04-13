@@ -729,6 +729,7 @@ def main(watershed_ids=None):
              for raster_id in POPULATION_RASTER_URL_MAP.keys()]):
         for stitch_work_queue, target_stitch_raster_path in zip(
                 stitch_work_queue_tuple, target_stitch_raster_path_list):
+            LOGGER.debug(f'starting a stitcher for {target_stitch_raster_path}')
             stitch_worker_process = multiprocessing.Process(
                 target=stitch_worker,
                 args=(
