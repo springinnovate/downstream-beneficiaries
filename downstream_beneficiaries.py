@@ -482,6 +482,7 @@ def job_complete_worker(
         working_jobs = collections.defaultdict(int)
         global WATERSHEDS_TO_PROCESS_COUNT
         LOGGER.info(f'started job complete worker, initial watersheds {WATERSHEDS_TO_PROCESS_COUNT}')
+        watersheds_per_sec_list = []
         while True:
             payload = completed_work_queue.get()
             if payload is None:
@@ -503,7 +504,6 @@ def job_complete_worker(
             cursor.close()
             LOGGER.info(f'done with {job_id}')
             uncommited_count += 1
-            watersheds_per_sec_list = []
             if uncommited_count > N_TO_STITCH:
                 connection.commit()
                 current_time = time.time()
