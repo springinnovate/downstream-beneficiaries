@@ -521,7 +521,7 @@ def job_complete_worker(
                 remaining_time_s -= remaining_time_h * 3600
                 remaining_time_m = int(remaining_time_s // 60)
                 remaining_time_s -= remaining_time_m * 60
-
+                LOGGER.debug(f'watersheds_per_sec_list: {watersheds_per_sec_list}')
                 LOGGER.info(
                     f'remaining watersheds to process: '
                     f'{WATERSHEDS_TO_PROCESS_COUNT} - '
