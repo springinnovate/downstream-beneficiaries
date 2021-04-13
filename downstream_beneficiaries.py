@@ -97,7 +97,7 @@ WORKSPACE_DIR = 'workspace'
 WATERSHED_WORKSPACE_DIR = os.path.join(WORKSPACE_DIR, 'watershed_workspace')
 for dir_path in [WORKSPACE_DIR, WATERSHED_WORKSPACE_DIR]:
     os.makedirs(dir_path, exist_ok=True)
-
+N_TO_STITCH = 100
 
 def _warp_and_wgs84_area_scale(
         base_raster_path, model_raster_path, target_raster_path,
@@ -482,7 +482,7 @@ def job_complete_worker(completed_work_queue, work_db_path, clean_result):
             cursor.close()
             LOGGER.info(f'done with {job_id}')
             uncommited_count += 1
-            if uncommited_count > 100:
+            if uncommited_count > N_TO_STITCH:
                 connection.commit()
                 processed_count += uncommited_count
                 uncommited_count = 0
@@ -526,7 +526,6 @@ def stitch_worker(
         stitch_work_queue, target_stitch_raster_path_list,
         stitch_done_queue, clean_result):
     """Take jobs from stitch work queue and stitch into target."""
-    n_to_buffer = 100
     stitch_buffer = collections.defaultdict(list)
     done_buffer = []
     n_buffered = 0
@@ -548,7 +547,7 @@ def stitch_worker(
                 stitch_buffer[target_stitch_raster_path].append(
                     target_beneficiaries_path)
             n_buffered += 1
-        if n_buffered > n_to_buffer or payload is None:
+        if n_buffered > N_TO_STITCH or payload is None:
             LOGGER.info(
                 f'about to stitch {n_buffered} into '
                 f'{target_stitch_raster_path}')
@@ -696,7 +695,7 @@ def main(watershed_ids=None):
     job_complete_worker_thread.start()
 
     stitch_work_queue_list = [
-        manager.Queue() for _ in range(len(stitch_raster_path_map))]
+        manager.Queue(N_TO_STITCH*2) for _ in range(len(stitch_raster_path_map))]
     stitch_worker_process_list = []
     for stitch_work_queue, target_stitch_raster_path_list in zip(
             stitch_work_queue_list,
