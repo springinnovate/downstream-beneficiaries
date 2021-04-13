@@ -563,6 +563,7 @@ def stitch_worker(
     while True:
         payload = stitch_work_queue.get()
         if payload is None:
+            LOGGER.debug(f'stitch worker for {target_stitch_raster_path} got DONE signal')
             stitch_work_queue.put(None)
             stitch_done_queue.put(None)
         else:
