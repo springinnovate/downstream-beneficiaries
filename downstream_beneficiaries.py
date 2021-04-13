@@ -359,6 +359,8 @@ def process_watershed(
             target_normalized_beneficiaries_path_list,
             target_stitch_work_queue_list):
 
+        LOGGER.debug(f'processing {target_beneficiaries_path} and normalized')
+
         aligned_pop_raster_path = os.path.join(
             working_dir,
             f'''{job_id}_{os.path.basename(
