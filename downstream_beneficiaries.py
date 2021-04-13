@@ -473,10 +473,10 @@ def job_complete_worker(
         ``None``
     """
     try:
-        start_time = time.time()
+        last_time = time.time()
         connection = sqlite3.connect(work_db_path)
         uncommited_count = 0
-        processed_count = 0
+        processed_so_far = 0
         working_jobs = collections.defaultdict(int)
         global WATERSHEDS_TO_PROCESS_COUNT
         LOGGER.info(f'started job complete worker, initial watersheds {WATERSHEDS_TO_PROCESS_COUNT}')
@@ -501,13 +501,18 @@ def job_complete_worker(
                 """)
             cursor.close()
             LOGGER.info(f'done with {job_id}')
+            watersheds_per_sec_list = []
             if uncommited_count > N_TO_STITCH:
                 connection.commit()
-                processed_count += uncommited_count
-                uncommited_count = 0
                 current_time = time.time()
-                watersheds_per_sec = processed_count / (
-                    current_time-start_time)
+                watersheds_per_sec_list.append(
+                    uncommited_count / (current_time - last_time))
+                if len(watersheds_per_sec_list) > 30:
+                    watersheds_per_sec_list.pop(0)
+                watersheds_per_sec = numpy.mean(watersheds_per_sec_list)
+                last_time = current_time
+                processed_so_far += uncommited_count
+                uncommited_count = 0
                 remaining_time_s = (
                     WATERSHEDS_TO_PROCESS_COUNT / watersheds_per_sec)
                 remaining_time_h = int(remaining_time_s // 3600)
@@ -518,6 +523,7 @@ def job_complete_worker(
                 LOGGER.info(
                     f'remaining watersheds to process: '
                     f'{WATERSHEDS_TO_PROCESS_COUNT} - '
+                    f'processed so far {processed_so_far} - '
                     f'process/sec: {watersheds_per_sec:.1f} - '
                     f'time left: {remaining_time_h}:'
                     f'{remaining_time_m:02d}:{remaining_time_s:04.1f}')
@@ -794,6 +800,7 @@ def main(watershed_ids=None):
                          watershed_fid}_normalized.tif''')
                       for raster_id in POPULATION_RASTER_URL_MAP.keys()],
                      stitch_work_queue_list)))
+                break
 
         watershed_work_queue.put(None)
         for watershed_worker in watershed_worker_process_list:
