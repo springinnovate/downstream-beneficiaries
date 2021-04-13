@@ -580,6 +580,7 @@ def stitch_worker(
                 area_weight_m2_to_wgs84=True,
                 overlap_algorithm='etch')
             for working_dir, job_id in done_buffer:
+                LOGGER.debug(f'putting {(working_dir, job_id)} to be done')
                 stitch_done_queue.put((working_dir, job_id))
             stitch_buffer_list = []
             done_buffer = []
@@ -722,7 +723,7 @@ def main(watershed_ids=None):
              for raster_id in POPULATION_RASTER_URL_MAP.keys()]):
         for stitch_work_queue, target_stitch_raster_path in zip(
                 stitch_work_queue_tuple, target_stitch_raster_path_list):
-            stitch_worker_process = threading.Thread(
+            stitch_worker_process = multiprocessing.Process(
                 target=stitch_worker,
                 args=(
                     stitch_work_queue, target_stitch_raster_path,
