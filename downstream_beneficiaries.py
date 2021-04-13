@@ -552,26 +552,16 @@ def stitch_worker(
                 f'about to stitch {n_buffered} into '
                 f'{target_stitch_raster_path}')
             start_time = time.time()
-            stitch_raster_worker_list = []
             for target_stitch_raster_path in stitch_buffer:
                 stitch_raster_path_list = [
                     (path, 1) for path in
                     stitch_buffer[target_stitch_raster_path]]
-                stitch_raster_worker = multiprocessing.Process(
-                    target=pygeoprocessing.stitch_rasters,
-                    args=(
-                        stitch_raster_path_list, ['near']*len(
-                            stitch_raster_path_list),
-                        (target_stitch_raster_path, 1)),
-                    kwargs={
-                        'area_weight_m2_to_wgs84': True,
-                        'overlap_algorithm': 'etch'})
-                stitch_raster_worker.start()
-                stitch_raster_worker_list.append(stitch_raster_worker)
-            LOGGER.info('waiting for stitch raster workers to end')
-            for stitch_raster_worker in stitch_raster_worker_list:
-                stitch_raster_worker.join()
-            for target_stitch_raster_path in stitch_buffer:
+                pygeoprocessing.stitch_rasters(
+                    stitch_raster_path_list, ['near']*len(
+                        stitch_raster_path_list),
+                    (target_stitch_raster_path, 1),
+                    area_weight_m2_to_wgs84=True,
+                    overlap_algorithm='etch')
                 if clean_result:
                     for path in stitch_buffer[target_stitch_raster_path]:
                         os.remove(path)
@@ -710,7 +700,7 @@ def main(watershed_ids=None):
             stitch_work_queue_list,
             [stitch_raster_path_map[raster_id]
              for raster_id in POPULATION_RASTER_URL_MAP.keys()]):
-        stitch_worker_process = threading.Thread(
+        stitch_worker_process = multiprocessing.Process(
             target=stitch_worker,
             args=(
                 stitch_work_queue, target_stitch_raster_path_list,
