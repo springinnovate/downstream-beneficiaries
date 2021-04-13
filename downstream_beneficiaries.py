@@ -552,20 +552,30 @@ def stitch_worker(
                 f'about to stitch {n_buffered} into '
                 f'{target_stitch_raster_path}')
             start_time = time.time()
+            stitch_raster_worker_list = []
             for target_stitch_raster_path in stitch_buffer:
                 stitch_raster_path_list = [
                     (path, 1) for path in
                     stitch_buffer[target_stitch_raster_path]]
-                pygeoprocessing.stitch_rasters(
-                    stitch_raster_path_list, ['near']*len(
-                        stitch_raster_path_list),
-                    (target_stitch_raster_path, 1),
-                    area_weight_m2_to_wgs84=True,
-                    overlap_algorithm='etch')
+                stitch_raster_worker = multiprocessing.Process(
+                    target=pygeoprocessing.stitch_rasters,
+                    args=(
+                        stitch_raster_path_list, ['near']*len(
+                            stitch_raster_path_list),
+                        (target_stitch_raster_path, 1)),
+                    kwargs={
+                        'area_weight_m2_to_wgs84': True,
+                        'overlap_algorithm': 'etch'})
+                stitch_raster_worker.start()
+                stitch_raster_worker_list.append(stitch_raster_worker)
+            for stitch_raster_worker in stitch_raster_worker_list:
+                stitch_raster_worker.join()
 
-                if clean_result:
-                    for path in stitch_buffer[target_stitch_raster_path]:
-                        os.remove(path)
+            for target_stitch_raster_path in stitch_buffer:
+                for target_stitch_raster_path in stitch_buffer:
+                    if clean_result:
+                        for path in stitch_buffer[target_stitch_raster_path]:
+                            os.remove(path)
             for working_dir, job_id in done_buffer:
                 stitch_done_queue.put((working_dir, job_id))
             stitch_buffer = collections.defaultdict(list)
