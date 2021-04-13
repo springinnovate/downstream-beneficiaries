@@ -502,6 +502,7 @@ def job_complete_worker(
                 """)
             cursor.close()
             LOGGER.info(f'done with {job_id}')
+            uncommited_count += 1
             watersheds_per_sec_list = []
             if uncommited_count > N_TO_STITCH:
                 connection.commit()
