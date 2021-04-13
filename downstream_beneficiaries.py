@@ -481,7 +481,9 @@ def job_complete_worker(
         global WATERSHEDS_TO_PROCESS_COUNT
         LOGGER.info(f'started job complete worker, initial watersheds {WATERSHEDS_TO_PROCESS_COUNT}')
         while True:
+            LOGGER.debug('waiting for get')
             payload = completed_work_queue.get()
+            LOGGER.debug(f'got a payload: {payload}')
             if payload is None:
                 LOGGER.info('got None in completed work, terminating')
                 break
