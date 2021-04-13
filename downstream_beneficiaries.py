@@ -572,10 +572,9 @@ def stitch_worker(
             for stitch_raster_worker in stitch_raster_worker_list:
                 stitch_raster_worker.join()
             for target_stitch_raster_path in stitch_buffer:
-                for target_stitch_raster_path in stitch_buffer:
-                    if clean_result:
-                        for path in stitch_buffer[target_stitch_raster_path]:
-                            os.remove(path)
+                if clean_result:
+                    for path in stitch_buffer[target_stitch_raster_path]:
+                        os.remove(path)
             for working_dir, job_id in done_buffer:
                 stitch_done_queue.put((working_dir, job_id))
             stitch_buffer = collections.defaultdict(list)
