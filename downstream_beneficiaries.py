@@ -568,9 +568,9 @@ def stitch_worker(
                         'overlap_algorithm': 'etch'})
                 stitch_raster_worker.start()
                 stitch_raster_worker_list.append(stitch_raster_worker)
+            LOGGER.info('waiting for stitch raster workers to end')
             for stitch_raster_worker in stitch_raster_worker_list:
                 stitch_raster_worker.join()
-
             for target_stitch_raster_path in stitch_buffer:
                 for target_stitch_raster_path in stitch_buffer:
                     if clean_result:
