@@ -777,14 +777,15 @@ def main(watershed_ids=None):
             watershed_vector = gdal.OpenEx(watershed_path, gdal.OF_VECTOR)
             watershed_layer = watershed_vector.GetLayer()
             watershed_fid_list = [
-                watershed_feature.GetFID()
+                (watershed_feature.GetGeometryRef().Area(),
+                 watershed_feature.GetFID())
                 for watershed_feature in watershed_layer]
             watershed_layer = None
             watershed_vector = None
             watershed_basename = os.path.splitext(
                 os.path.basename(watershed_path))[0]
-            for watershed_fid in watershed_fid_list:
-
+            for watershed_area, watershed_fid in sorted(
+                    watershed_fid_list, reverse=True):
                 job_id = f'''{os.path.basename(
                     os.path.splitext(watershed_path)[0])}_{watershed_fid}'''
                 if job_id in completed_job_set:
