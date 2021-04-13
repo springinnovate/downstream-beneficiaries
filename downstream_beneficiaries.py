@@ -483,14 +483,11 @@ def job_complete_worker(
         global WATERSHEDS_TO_PROCESS_COUNT
         LOGGER.info(f'started job complete worker, initial watersheds {WATERSHEDS_TO_PROCESS_COUNT}')
         while True:
-            LOGGER.debug('waiting for get')
             payload = completed_work_queue.get()
-            LOGGER.debug(f'got a payload: {payload}')
             if payload is None:
                 LOGGER.info('got None in completed work, terminating')
                 break
             working_dir, job_id = payload
-            LOGGER.debug(f'got a payload for {job_id}')
             working_jobs[job_id] += 1
             if working_jobs[job_id] < n_expected:
                 continue
@@ -585,7 +582,6 @@ def stitch_worker(
                 area_weight_m2_to_wgs84=True,
                 overlap_algorithm='etch')
             for working_dir, job_id in done_buffer:
-                LOGGER.debug(f'putting {(working_dir, job_id)} to be done')
                 stitch_done_queue.put((working_dir, job_id))
             stitch_buffer_list = []
             done_buffer = []
