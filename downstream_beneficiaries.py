@@ -545,6 +545,7 @@ def general_worker(work_queue):
         payload = work_queue.get()
         if payload is None:
             work_queue.put(None)
+            LOGGER.debug('got a none on general worker, quitting')
             break
         func, args = payload
         func(*args)
@@ -805,16 +806,20 @@ def main(watershed_ids=None):
                      stitch_work_queue_list)))
                 break
 
+        LOGGER.debug('waiting for watershed workers to be done')
         watershed_work_queue.put(None)
         for watershed_worker in watershed_worker_process_list:
             watershed_worker.join()
+        LOGGER.debug('watershed workers are done')
 
+    LOGGER.debug('signal stitch workers to be done')
     for stitch_queue in [
             sq for sq_tuple in stitch_work_queue_list for sq in sq_tuple]:
         stitch_queue.put(None)
 
     for stitch_worker_process in stitch_worker_process_list:
         stitch_worker_process.join()
+    LOGGER.debug('stitch worker done')
 
     job_complete_worker_thread.join()
     LOGGER.info('all done')
