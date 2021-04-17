@@ -971,10 +971,6 @@ def main(watershed_ids=None):
                 continue
             WATERSHEDS_TO_PROCESS_COUNT += 1
 
-            # TODO: debug
-            if WATERSHEDS_TO_PROCESS_COUNT < 100:
-                continue
-
             workspace_dir = os.path.join(WATERSHED_WORKSPACE_DIR, job_id)
             watershed_work_queue.put((
                 process_watershed,
@@ -992,7 +988,6 @@ def main(watershed_ids=None):
                      watershed_fid}_hab_normalized.tif''')
                   for raster_id in POPULATION_RASTER_URL_MAP.keys()],
                  stitch_work_queue_list)))
-            break
 
         LOGGER.debug('waiting for watershed workers to be done')
         watershed_work_queue.put(None)
