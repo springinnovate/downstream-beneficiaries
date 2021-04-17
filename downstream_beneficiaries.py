@@ -256,7 +256,7 @@ def rescale_by_base(base_raster_path, new_raster_path, target_raster_path):
     new_sum = _sum_raster(new_raster_path)
 
     base_nodata = pygeoprocessing.get_raster_info(base_raster_path)['nodata'][0]
-    new_raster_info = pygeoprocessing.get_raster_info(new_raster_path)['nodata'][0]
+    new_raster_info = pygeoprocessing.get_raster_info(new_raster_path)
 
     def _mult_op(base_array, scale):
         """Scale non-nodata by scale."""
