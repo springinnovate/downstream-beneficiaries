@@ -153,22 +153,12 @@ def _warp_and_wgs84_area_scale(
         scaled_raster_path,
         gdal.GDT_Float32, -1)
 
-    warped_raster_path = os.path.join(
-        working_dir,
-        f'warped_{os.path.basename(clipped_base_path)}')
     pygeoprocessing.warp_raster(
         scaled_raster_path, model_raster_info['pixel_size'],
-        warped_raster_path, 'near',
+        target_raster_path, 'near',
         target_projection_wkt=model_raster_info['projection_wkt'],
         target_bb=model_raster_info['bounding_box'],
         working_dir=working_dir)
-
-    pygeoprocessing.raster_calculator(
-        [(warped_raster_path, 1), (-1, 'raw'),
-         numpy.array([[model_raster_info['pixel_size'][0]**2]]),
-         (numpy.float32, 'raw')], _mult_op,
-        target_raster_path,
-        gdal.GDT_Float32, -1)
 
 
 def _create_outlet_raster(
