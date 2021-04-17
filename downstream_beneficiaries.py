@@ -255,21 +255,21 @@ def rescale_by_base(base_raster_path, new_raster_path, target_raster_path):
     base_sum = _sum_raster(base_raster_path)
     new_sum = _sum_raster(new_raster_path)
 
-    base_nodata = pygeoprocessing.get_raster_info(base_raster_path)['nodata'][0]
     new_raster_info = pygeoprocessing.get_raster_info(new_raster_path)
+    new_nodata = new_raster_info['nodata'][0]
 
-    def _mult_op(base_array, scale):
+    def _mult_op(new_array, scale):
         """Scale non-nodata by scale."""
-        result = numpy.copy(base_array)
-        if base_nodata is not None:
-            valid_mask = ~numpy.isclose(base_array, base_nodata)
+        result = numpy.copy(new_array)
+        if new_nodata is not None:
+            valid_mask = ~numpy.isclose(new_array, new_nodata)
         else:
             valid_mask = slice(-1)
         result[valid_mask] *= scale
         return result
 
     pygeoprocessing.raster_calculator(
-        [(base_raster_path, 1), (base_sum/new_sum, 'raw')], _mult_op,
+        [(new_raster_path, 1), (base_sum/new_sum, 'raw')], _mult_op,
         target_raster_path, new_raster_info['datatype'],
         new_raster_info['nodata'][0])
 
