@@ -149,7 +149,7 @@ def _warp_and_wgs84_area_scale(
     base_nodata = base_raster_info['nodata'][0]
     pygeoprocessing.raster_calculator(
         [(clipped_base_path, 1), (base_nodata, 'raw'),
-         m2_area_per_lat/base_pixel_area_m2,
+         base_pixel_area_m2/m2_area_per_lat,
          (numpy.float32, 'raw')], _mult_op,
         scaled_raster_path,
         gdal.GDT_Float32, base_nodata)
