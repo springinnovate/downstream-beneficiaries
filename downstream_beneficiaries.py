@@ -445,7 +445,7 @@ def process_watershed(
             (target_beneficiaries_path, working_dir, job_id))
         stitch_queue_tuple[1].put(
             (target_normalized_beneficiaries_path, working_dir, job_id))
-        stitch_queue_tuple[3].put(
+        stitch_queue_tuple[2].put(
             (target_hab_normalized_beneficiaries_path, working_dir, job_id))
 
     task_graph.close()
