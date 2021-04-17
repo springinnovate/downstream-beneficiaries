@@ -127,6 +127,7 @@ def _warp_and_wgs84_area_scale(
     lat_max = base_raster_info['bounding_box'][3]
     _, n_rows = pygeoprocessing.get_raster_info(
         clipped_base_path)['raster_size']
+    LOGGER.debug(f'lat_min: {lat_min}, lat_max: {lat_max} n_rows: {n_rows}')
     m2_area_per_lat = pygeoprocessing.geoprocessing._create_latitude_m2_area_column(
         lat_min, lat_max, n_rows)
 
