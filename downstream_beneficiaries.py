@@ -199,7 +199,7 @@ def _create_outlet_raster(
     outlet_raster = None
 
 
-def mask_raster(base_raster_path, mask_raster_path, target_raster_path):
+def _mask_raster(base_raster_path, mask_raster_path, target_raster_path):
     """Mask base by mask."""
     base_nodata = pygeoprocessing.get_raster_info(
         base_raster_path)['nodata'][0]
