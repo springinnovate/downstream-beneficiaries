@@ -851,20 +851,24 @@ def main(watershed_ids=None):
             watershed_worker_process.start()
             watershed_worker_process_list.append(watershed_worker_process)
 
+        LOGGER.info('building watershed fid list')
         watershed_fid_list = []
+        watershed_path_list = []
         for watershed_path in glob.glob(
                 os.path.join(watershed_root_dir, '*.shp')):
+            watershed_path_list.append(watershed_path)
             watershed_vector = gdal.OpenEx(watershed_path, gdal.OF_VECTOR)
             watershed_layer = watershed_vector.GetLayer()
             watershed_fid_list.extend([
                 (watershed_feature.GetGeometryRef().Area(),
-                 watershed_feature.GetFID(), watershed_path)
+                 watershed_feature.GetFID(), len(watershed_path_list))
                 for watershed_feature in watershed_layer])
             watershed_layer = None
             watershed_vector = None
-
-        for watershed_area, watershed_fid, watershed_path in sorted(
+        LOGGER.info('starting scheduling')
+        for watershed_area, watershed_fid, watershed_path_index in sorted(
                 watershed_fid_list, reverse=True):
+            watershed_path = watershed_path_list[watershed_path_index]
             watershed_basename = os.path.splitext(
                 os.path.basename(watershed_path))[0]
             job_id = f'''{os.path.basename(
