@@ -207,7 +207,7 @@ def _mask_raster(base_raster_path, mask_raster_path, target_raster_path):
         result = numpy.empty_like(base_array)
         result[:] = base_nodata
         nodata_mask = numpy.isclose(base_array, base_nodata)
-        valid_mask = ~nodata_mask & mask_array
+        valid_mask = ~nodata_mask & (mask_array == 1)
         zero_mask = ~nodata_mask & (mask_array == 0)
         result[valid_mask] = base_array[valid_mask]
         result[zero_mask] = 0
@@ -297,7 +297,6 @@ def process_watershed(
         lat_lng_watershed_bb,
         watershed_info['projection_wkt'],
         epsg_sr.ExportToWkt())
-    LOGGER.debug(f'lat_lng_watershed_bb: {lat_lng_watershed_bb}\ntarget_watershed_bb: {target_watershed_bb}')
 
     watershed_vector = None
     watershed_layer = None
@@ -498,7 +497,7 @@ def process_watershed(
                 'calc downstream normalized beneficiaries for '
                 f'{hab_pre_mask_normalized_beneficiaries_path}'))
         # mask this result to the target
-        task_graph.add_task(
+        mask_downstream_norm_bene_task = task_graph.add_task(
             func=_mask_raster,
             args=(
                 hab_pre_mask_normalized_beneficiaries_path,
