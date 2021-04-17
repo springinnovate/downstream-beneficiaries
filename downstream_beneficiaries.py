@@ -227,7 +227,7 @@ def normalize(
     base_nodata = pygeoprocessing.get_raster_info(base_raster_path)['nodata'][0]
 
     def _safe_div_op(base, weight):
-        result = numpy.full(base.shape, base_nodata, dtype=numpy.float32)
+        result = numpy.full(base.shape, base_nodata, dtype=numpy.float64)
         valid_mask = (base != base_nodata) & (weight > 0)
         result[valid_mask] = base[valid_mask]/weight[valid_mask]
         return result
