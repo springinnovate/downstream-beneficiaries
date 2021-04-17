@@ -851,44 +851,50 @@ def main(watershed_ids=None):
             watershed_worker_process.start()
             watershed_worker_process_list.append(watershed_worker_process)
 
+        watershed_fid_list = []
         for watershed_path in glob.glob(
                 os.path.join(watershed_root_dir, '*.shp')):
             watershed_vector = gdal.OpenEx(watershed_path, gdal.OF_VECTOR)
             watershed_layer = watershed_vector.GetLayer()
-            watershed_fid_list = [
+            watershed_fid_list.extend([
                 (watershed_feature.GetGeometryRef().Area(),
-                 watershed_feature.GetFID())
-                for watershed_feature in watershed_layer]
+                 watershed_feature.GetFID(), watershed_path)
+                for watershed_feature in watershed_layer])
             watershed_layer = None
             watershed_vector = None
+
+        for watershed_area, watershed_fid, watershed_path in sorted(
+                watershed_fid_list, reverse=True):
             watershed_basename = os.path.splitext(
                 os.path.basename(watershed_path))[0]
-            for watershed_area, watershed_fid in sorted(
-                    watershed_fid_list, reverse=True):
-                job_id = f'''{os.path.basename(
-                    os.path.splitext(watershed_path)[0])}_{watershed_fid}'''
-                if job_id in completed_job_set:
-                    continue
-                WATERSHEDS_TO_PROCESS_COUNT += 1
+            job_id = f'''{os.path.basename(
+                os.path.splitext(watershed_path)[0])}_{watershed_fid}'''
+            if job_id in completed_job_set:
+                continue
+            WATERSHEDS_TO_PROCESS_COUNT += 1
 
-                workspace_dir = os.path.join(WATERSHED_WORKSPACE_DIR, job_id)
-                watershed_work_queue.put((
-                    process_watershed,
-                    (job_id, watershed_path, watershed_fid, dem_vrt_path,
-                     hab_mask_raster_path,
-                     [pop_raster_path_map[raster_id]
-                      for raster_id in POPULATION_RASTER_URL_MAP.keys()],
-                     [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
-                         watershed_fid}.tif''')
-                      for raster_id in POPULATION_RASTER_URL_MAP.keys()],
-                     [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
-                         watershed_fid}_normalized.tif''')
-                      for raster_id in POPULATION_RASTER_URL_MAP.keys()],
-                     [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
-                         watershed_fid}_hab_normalized.tif''')
-                      for raster_id in POPULATION_RASTER_URL_MAP.keys()],
-                     stitch_work_queue_list)))
-                break
+            # TODO: debug
+            if WATERSHEDS_TO_PROCESS_COUNT < 100:
+                continue
+
+            workspace_dir = os.path.join(WATERSHED_WORKSPACE_DIR, job_id)
+            watershed_work_queue.put((
+                process_watershed,
+                (job_id, watershed_path, watershed_fid, dem_vrt_path,
+                 hab_mask_raster_path,
+                 [pop_raster_path_map[raster_id]
+                  for raster_id in POPULATION_RASTER_URL_MAP.keys()],
+                 [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
+                     watershed_fid}.tif''')
+                  for raster_id in POPULATION_RASTER_URL_MAP.keys()],
+                 [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
+                     watershed_fid}_normalized.tif''')
+                  for raster_id in POPULATION_RASTER_URL_MAP.keys()],
+                 [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
+                     watershed_fid}_hab_normalized.tif''')
+                  for raster_id in POPULATION_RASTER_URL_MAP.keys()],
+                 stitch_work_queue_list)))
+            break
 
         LOGGER.debug('waiting for watershed workers to be done')
         watershed_work_queue.put(None)
