@@ -95,12 +95,14 @@ POPULATION_RASTER_URL_MAP = {
     '2017': 'https://storage.googleapis.com/ecoshard-root/population/lspop2017_md5_2e8da6824e4d67f8ea321ba4b585a3a5.tif',
     }
 
+HAB_MASK_URL = 'https://storage.googleapis.com/critical-natural-capital-ecoshards/habmasks/masked_all_nathab_esa2015_md5_50debbf5fba6dbdaabfccbc39a9b1670.tif'
+
+
 WORKSPACE_DIR = 'workspace'
 WATERSHED_WORKSPACE_DIR = os.path.join(WORKSPACE_DIR, 'watershed_workspace')
 for dir_path in [WORKSPACE_DIR, WATERSHED_WORKSPACE_DIR]:
     os.makedirs(dir_path, exist_ok=True)
 N_TO_STITCH = 100
-
 
 def _warp_and_wgs84_area_scale(
         base_raster_path, model_raster_path, target_raster_path,
@@ -220,9 +222,10 @@ def normalize(
 
 
 def process_watershed(
-        job_id, watershed_vector_path, watershed_fid, dem_path,
+        job_id, watershed_vector_path, watershed_fid, dem_path, hab_path,
         pop_raster_path_list, target_beneficiaries_path_list,
         target_normalized_beneficiaries_path_list,
+        target_hab_normalized_beneficiaries_path_list,
         target_stitch_work_queue_list):
     """Calculate downstream beneficiaries for this watershed.
 
@@ -232,12 +235,16 @@ def process_watershed(
         watershed_vector_path (str): path to watershed vector
         watershed_fid (str): watershed FID to process
         dem_path (str): path to DEM raster
+        hab_path (str): path to habitat mask raster
         pop_raster_path_list (list): list of population rasters to route
         target_beneficiaries_path_list (str): list of target downstream
             beneficiary rasters to create, parallel with
             `pop_raster_path_list`.
         target_normalized_beneficiaries_path_list (list): list of target
             normalized downstream beneficiary rasters, parallel with other
+            lists.
+        target_hab_normalized_beneficiaries_path_list (list): list of target
+            hab normalized downstream beneficiary rasters, parallel with other
             lists.
         target_stitch_work_queue_list (list): list of work queue tuples to
             put done signals in when each beneficiary raster is done. The
@@ -285,20 +292,25 @@ def process_watershed(
     target_pixel_size = (300, -300)
 
     warped_dem_raster_path = os.path.join(working_dir, f'{job_id}_dem.tif')
-    warp_dem_task = task_graph.add_task(
-        func=pygeoprocessing.warp_raster,
+    warped_habitat_raster_path = os.path.join(
+        working_dir, f'{job_id}_hab.tif')
+    align_task = task_graph.add_task(
+        func=pygeoprocessing.align_and_resize_raster_stack,
         args=(
-            dem_path, target_pixel_size, warped_dem_raster_path, 'near'),
+            [dem_path, hab_path],
+            [warped_dem_raster_path, warped_habitat_raster_path],
+            ['near', 'mode'], target_pixel_size, target_watershed_bb),
         kwargs={
-            'target_bb': target_watershed_bb,
             'target_projection_wkt': epsg_sr.ExportToWkt(),
             'vector_mask_options': {
                 'mask_vector_path': watershed_vector_path,
                 'mask_vector_where_filter': f'"FID"={watershed_fid}'},
-            'gdal_warp_options': None,
-            'working_dir': working_dir},
-        target_path_list=[warped_dem_raster_path],
-        task_name=f'clip and warp dem to {warped_dem_raster_path}')
+            },
+        target_path_list=[
+            warped_dem_raster_path, warped_habitat_raster_path],
+        task_name=(
+            f'align and clip and warp dem/hab to {warped_dem_raster_path} '
+            f'{warped_habitat_raster_path}'))
 
     filled_dem_raster_path = os.path.join(
         working_dir, f'{job_id}_filled_dem.tif')
@@ -309,7 +321,7 @@ def process_watershed(
         kwargs={
             'working_dir': working_dir,
             'max_pixel_fill_count': 10000},
-        dependent_task_list=[warp_dem_task],
+        dependent_task_list=[align_task],
         target_path_list=[filled_dem_raster_path],
         task_name=f'fill dem pits to {filled_dem_raster_path}')
 
@@ -345,18 +357,31 @@ def process_watershed(
 
     flow_accum_mfd_raster_path = os.path.join(
         working_dir, f'{job_id}_flow_accum.tif')
-    flow_dir_mfd_task = task_graph.add_task(
+    flow_accum_task = task_graph.add_task(
         func=pygeoprocessing.routing.flow_accumulation_mfd,
         args=((flow_dir_mfd_raster_path, 1), flow_accum_mfd_raster_path),
         dependent_task_list=[flow_dir_mfd_task],
         target_path_list=[flow_accum_mfd_raster_path],
-        task_name=f'calc flow dir for {flow_accum_mfd_raster_path}')
+        task_name=f'calc upstream flow area for {flow_accum_mfd_raster_path}')
+
+    hab_upstream_area_raster_path = os.path.join(
+        working_dir, f'{job_id}_hab_upstream.tif')
+    hab_upstream_task = task_graph.add_task(
+        func=pygeoprocessing.routing.flow_accumulation_mfd,
+        args=((flow_dir_mfd_raster_path, 1), hab_upstream_area_raster_path),
+        kwargs={'weight_raster_path_band': (warped_habitat_raster_path, 1)},
+        dependent_task_list=[flow_dir_mfd_task],
+        target_path_list=[hab_upstream_area_raster_path],
+        task_name=(
+            f'calc upstream hab area for {hab_upstream_area_raster_path}'))
 
     for (pop_raster_path, target_beneficiaries_path,
          target_normalized_beneficiaries_path,
+         target_hab_normalized_beneficiaries_path,
          stitch_queue_tuple) in zip(
             pop_raster_path_list, target_beneficiaries_path_list,
             target_normalized_beneficiaries_path_list,
+            target_hab_normalized_beneficiaries_path_list,
             target_stitch_work_queue_list):
 
         LOGGER.debug(f'processing {target_beneficiaries_path} and normalized')
@@ -373,7 +398,7 @@ def process_watershed(
                 aligned_pop_raster_path,
                 'near', lat_lng_watershed_bb,
                 watershed_vector_path, watershed_fid, working_dir),
-            dependent_task_list=[warp_dem_task],
+            dependent_task_list=[align_task],
             target_path_list=[aligned_pop_raster_path],
             task_name=f'align {aligned_pop_raster_path}')
 
@@ -391,37 +416,37 @@ def process_watershed(
                 'calc downstream beneficiaries for '
                 f'{target_beneficiaries_path}'))
 
-        target_downstream_dist_path = os.path.join(
-            working_dir, f'''d8_dist_{job_id}_{os.path.basename(
-                os.path.splitext(target_beneficiaries_path)[0])}.tif''')
-        downstream_dist_task = task_graph.add_task(
-            func=pygeoprocessing.routing.distance_to_channel_mfd,
-            args=(
-                (flow_dir_mfd_raster_path, 1), (outlet_raster_path, 1),
-                target_downstream_dist_path),
-            dependent_task_list=[
-                pop_warp_task, create_outlet_raster_task, flow_dir_mfd_task],
-            target_path_list=[target_downstream_dist_path],
-            task_name=(
-                'calc downstream dist for '
-                f'{target_downstream_dist_path}'))
-
         normalize_by_dist_task = task_graph.add_task(
             func=normalize,
             args=(
-                target_beneficiaries_path, target_downstream_dist_path,
+                target_beneficiaries_path, flow_accum_mfd_raster_path,
                 target_normalized_beneficiaries_path),
-            dependent_task_list=[downstream_dist_task, downstream_bene_task],
+            dependent_task_list=[flow_accum_task, downstream_bene_task],
             target_path_list=[target_normalized_beneficiaries_path],
             task_name=(
                 f'normalized beneficiaries for '
                 f'{target_normalized_beneficiaries_path}'))
+
+        normalize_by_dist_task = task_graph.add_task(
+            func=normalize,
+            args=(
+                target_beneficiaries_path, hab_upstream_area_raster_path,
+                target_hab_normalized_beneficiaries_path),
+            dependent_task_list=[hab_upstream_task, downstream_bene_task],
+            target_path_list=[target_hab_normalized_beneficiaries_path],
+            task_name=(
+                f'normalized beneficiaries for '
+                f'{target_hab_normalized_beneficiaries_path}'))
+
+        # mask this result to the target
 
         normalize_by_dist_task.join()
         stitch_queue_tuple[0].put(
             (target_beneficiaries_path, working_dir, job_id))
         stitch_queue_tuple[1].put(
             (target_normalized_beneficiaries_path, working_dir, job_id))
+        stitch_queue_tuple[3].put(
+            (target_hab_normalized_beneficiaries_path, working_dir, job_id))
 
     task_graph.close()
     task_graph.join()
@@ -496,13 +521,13 @@ def job_complete_worker(
             del working_jobs[job_id]
             WATERSHEDS_TO_PROCESS_COUNT -= 1
             if clean_result:
-                shutil.rmtree(working_dir)
+                shutil.rmtree(working_dir, ignore_errors=True)
             cursor = connection.execute(
                 f"""
                 INSERT INTO completed_job_ids VALUES ("{job_id}")
                 """)
             cursor.close()
-            LOGGER.info(f'done with {job_id}')
+            LOGGER.info(f'done with {job_id} {working_dir}')
             uncommited_count += 1
             if uncommited_count > N_TO_STITCH:
                 connection.commit()
@@ -656,6 +681,15 @@ def main(watershed_ids=None):
         args=(WATERSHED_VECTOR_ZIP_URL, watershed_download_dir),
         task_name='download and unzip watershed vector')
 
+    HAB_MASK_URL
+    hab_mask_raster_path = os.path.join(
+        WORKSPACE_DIR, os.path.basename(HAB_MASK_URL))
+    download_hab_mask_task = task_graph.add_task(
+        func=ecoshard.download_url,
+        args=(HAB_MASK_URL, hab_mask_raster_path),
+        target_path_list=[hab_mask_raster_path],
+        task_name=f'download {HAB_MASK_URL}')
+
     pop_raster_path_map = {}
     stitch_raster_path_map = {}
     for pop_id, pop_url in POPULATION_RASTER_URL_MAP.items():
@@ -669,8 +703,9 @@ def main(watershed_ids=None):
             task_name=f'download {pop_url}')
         pop_raster_path_map[pop_id] = pop_raster_path
         stitch_raster_path_map[pop_id] = [
-            os.path.join(WORKSPACE_DIR, f'global_stitch_{pop_id}.tif'),
-            os.path.join(WORKSPACE_DIR, f'global_stitch_{pop_id}_normalized.tif')]
+            os.path.join(WORKSPACE_DIR, f'downstream_bene_{pop_id}.tif'),
+            os.path.join(WORKSPACE_DIR, f'downstream_bene_{pop_id}_normalized.tif'),
+            os.path.join(WORKSPACE_DIR, f'downstream_bene_{pop_id}_hab_normalized.tif')]
 
         for stitch_path in stitch_raster_path_map[pop_id]:
             if not os.path.exists(stitch_path):
@@ -706,12 +741,14 @@ def main(watershed_ids=None):
     LOGGER.info('start complete worker thread')
     global WATERSHEDS_TO_PROCESS_COUNT
     WATERSHEDS_TO_PROCESS_COUNT = 0
-    # expecting 2 * number of pop simulations
+    # expecting n stitch * number of pop simulations, used to determine when
+    # a directory can be cleaned up
     job_complete_worker_thread = threading.Thread(
         target=job_complete_worker,
         args=(
             completed_work_queue, work_db_path, args.clean_result,
-            len(stitch_raster_path_map)*2))
+            len(stitch_raster_path_map) *
+            len(POPULATION_RASTER_URL_MAP)))
     job_complete_worker_thread.start()
 
     # contains work queues for regular and normalized beneficiaries
@@ -754,6 +791,7 @@ def main(watershed_ids=None):
             WATERSHEDS_TO_PROCESS_COUNT += 1
             process_watershed(
                 job_id, watershed_path, int(watershed_fid), dem_vrt_path,
+                hab_mask_raster_path,
                 [pop_raster_path_map[raster_id]
                  for raster_id in POPULATION_RASTER_URL_MAP.keys()],
                 [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
@@ -761,6 +799,9 @@ def main(watershed_ids=None):
                  for raster_id in POPULATION_RASTER_URL_MAP.keys()],
                 [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
                      watershed_fid}_normalized.tif''')
+                 for raster_id in POPULATION_RASTER_URL_MAP.keys()],
+                [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
+                     watershed_fid}_hab_normalized.tif''')
                  for raster_id in POPULATION_RASTER_URL_MAP.keys()],
                 stitch_work_queue_list)
     else:
@@ -796,6 +837,7 @@ def main(watershed_ids=None):
                 watershed_work_queue.put((
                     process_watershed,
                     (job_id, watershed_path, watershed_fid, dem_vrt_path,
+                     hab_mask_raster_path
                      [pop_raster_path_map[raster_id]
                       for raster_id in POPULATION_RASTER_URL_MAP.keys()],
                      [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
@@ -804,7 +846,11 @@ def main(watershed_ids=None):
                      [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
                          watershed_fid}_normalized.tif''')
                       for raster_id in POPULATION_RASTER_URL_MAP.keys()],
+                     [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
+                         watershed_fid}_hab_normalized.tif''')
+                      for raster_id in POPULATION_RASTER_URL_MAP.keys()],
                      stitch_work_queue_list)))
+                break
 
         LOGGER.debug('waiting for watershed workers to be done')
         watershed_work_queue.put(None)
