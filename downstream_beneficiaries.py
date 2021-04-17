@@ -216,7 +216,7 @@ def _mask_raster(base_raster_path, mask_raster_path, target_raster_path):
     pygeoprocessing.raster_calculator(
         [(base_raster_path, 1),
          (mask_raster_path, 1)], _mask_op,
-        target_raster_path, gdal.GDT_Float64, base_nodata)
+        target_raster_path, gdal.GDT_Float32, base_nodata)
 
 
 def normalize(
@@ -227,14 +227,14 @@ def normalize(
     base_nodata = pygeoprocessing.get_raster_info(base_raster_path)['nodata'][0]
 
     def _safe_div_op(base, weight):
-        result = numpy.full(base.shape, base_nodata, dtype=numpy.float64)
+        result = numpy.full(base.shape, base_nodata, dtype=numpy.float32)
         valid_mask = (base != base_nodata) & (weight > 0)
         result[valid_mask] = base[valid_mask]/weight[valid_mask]
         return result
 
     pygeoprocessing.raster_calculator(
         [(base_raster_path, 1), (weight_raster_path, 1)], _safe_div_op,
-        target_raster_path, gdal.GDT_Float64, base_nodata)
+        target_raster_path, gdal.GDT_Float32, base_nodata)
 
 
 def _sum_raster(raster_path):
