@@ -837,7 +837,7 @@ def main(watershed_ids=None):
                 watershed_work_queue.put((
                     process_watershed,
                     (job_id, watershed_path, watershed_fid, dem_vrt_path,
-                     hab_mask_raster_path
+                     hab_mask_raster_path,
                      [pop_raster_path_map[raster_id]
                       for raster_id in POPULATION_RASTER_URL_MAP.keys()],
                      [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
