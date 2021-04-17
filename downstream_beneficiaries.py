@@ -1038,8 +1038,10 @@ def hash_overview_compress_raster(raster_path):
     compressed_raster = gdal.OpenEx(
         compressed_path, gdal.OF_RASTER | gdal.GA_Update)
     compressed_raster_band = compressed_raster.GetRasterBand(1)
-    minmax = compressed_raster_band.ComputeRasterMinMax(0)
-    LOGGER.debug(minmax)
+    stats = compressed_raster_band.ComputeStatistics(False)
+    LOGGER.debug(stats)
+    compressed_raster_band = None
+    compressed_raster = None
     ecoshard.hash_file(compressed_path, rename=True)
 
 
