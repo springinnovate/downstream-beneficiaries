@@ -1035,7 +1035,11 @@ def hash_overview_compress_raster(raster_path):
     ecoshard.build_overviews(raster_path)
     ecoshard.compress_raster(
         raster_path, compressed_path, compression_algorithm='LZW')
+    compressed_raster = gdal.OpenEx(compressed_path, gdal.OF_RASTER)
+    compressed_raster_band = compressed_raster.GetRasterBand(1)
+    compressed_raster_band.ComputeRasterMinMax(0)
     ecoshard.hash_file(compressed_path, rename=True)
+
 
 
 if __name__ == '__main__':
