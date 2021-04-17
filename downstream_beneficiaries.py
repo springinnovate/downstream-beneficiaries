@@ -112,8 +112,10 @@ def _warp_and_wgs84_area_scale(
     base_raster_info = pygeoprocessing.get_raster_info(base_raster_path)
     model_raster_info = pygeoprocessing.get_raster_info(model_raster_path)
     clipped_base_path = '%s_clip%s' % os.path.splitext(target_raster_path)
+    # LOGGER.debug(
+    #     f'clip {base_raster_path} to {clipped_base_path} on {clip_bb} with pixel size {model_raster_info['pixel_size']})
     pygeoprocessing.warp_raster(
-        base_raster_path, model_raster_info['pixel_size'],
+        base_raster_path, base_raster_info['pixel_size'],
         clipped_base_path, 'near',
         target_bb=clip_bb,
         vector_mask_options={
