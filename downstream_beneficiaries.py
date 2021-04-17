@@ -416,30 +416,69 @@ def process_watershed(
                 'calc downstream beneficiaries for '
                 f'{target_beneficiaries_path}'))
 
-        normalize_by_dist_task = task_graph.add_task(
-            func=normalize,
-            args=(
-                target_beneficiaries_path, flow_accum_mfd_raster_path,
-                target_normalized_beneficiaries_path),
-            dependent_task_list=[flow_accum_task, downstream_bene_task],
-            target_path_list=[target_normalized_beneficiaries_path],
-            task_name=(
-                f'normalized beneficiaries for '
-                f'{target_normalized_beneficiaries_path}'))
+        # divide aligned_pop_raster_path by flow accum to get normalized then
+        # route it downstream
+        pop_normal_by_upstream_raster_path = '%s_norm%s' % os.path.splitext(
+            aligned_pop_raster_path)
 
         normalize_by_dist_task = task_graph.add_task(
             func=normalize,
             args=(
-                target_beneficiaries_path, hab_upstream_area_raster_path,
-                target_hab_normalized_beneficiaries_path),
-            dependent_task_list=[hab_upstream_task, downstream_bene_task],
-            target_path_list=[target_hab_normalized_beneficiaries_path],
+                aligned_pop_raster_path, flow_accum_mfd_raster_path,
+                pop_normal_by_upstream_raster_path),
+            dependent_task_list=[flow_accum_task, align_task],
+            target_path_list=[pop_normal_by_upstream_raster_path],
             task_name=(
                 f'normalized beneficiaries for '
+                f'{pop_normal_by_upstream_raster_path}'))
+        downstream_norm_bene_task = task_graph.add_task(
+            func=pygeoprocessing.routing.distance_to_channel_mfd,
+            args=(
+                (flow_dir_mfd_raster_path, 1), (outlet_raster_path, 1),
+                target_normalized_beneficiaries_path),
+            kwargs={
+                'weight_raster_path_band': (pop_normal_by_upstream_raster_path, 1)},
+            dependent_task_list=[
+                pop_warp_task, create_outlet_raster_task, flow_dir_mfd_task,
+                normalize_by_dist_task],
+            target_path_list=[target_normalized_beneficiaries_path],
+            task_name=(
+                'calc downstream normalized beneficiaries for '
+                f'{target_normalized_beneficiaries_path}'))
+
+
+        # divide aligned_pop_raster_path by hab accum to get normalized by
+        # hab then route it downstream
+        pop_hab_normal_by_upstream_raster_path = '%s_hab_norm%s' % os.path.splitext(
+            aligned_pop_raster_path)
+
+        normalize_by_dist_task = task_graph.add_task(
+            func=normalize,
+            args=(
+                aligned_pop_raster_path, hab_upstream_area_raster_path,
+                pop_hab_normal_by_upstream_raster_path),
+            dependent_task_list=[hab_upstream_task, align_task],
+            target_path_list=[pop_hab_normal_by_upstream_raster_path],
+            task_name=(
+                f'normalized beneficiaries for '
+                f'{pop_hab_normal_by_upstream_raster_path}'))
+        downstream_norm_hab_bene_task = task_graph.add_task(
+            func=pygeoprocessing.routing.distance_to_channel_mfd,
+            args=(
+                (flow_dir_mfd_raster_path, 1), (outlet_raster_path, 1),
+                target_hab_normalized_beneficiaries_path),
+            kwargs={
+                'weight_raster_path_band': (
+                    pop_hab_normal_by_upstream_raster_path, 1)},
+            dependent_task_list=[
+                pop_warp_task, create_outlet_raster_task, flow_dir_mfd_task,
+                normalize_by_dist_task],
+            target_path_list=[target_hab_normalized_beneficiaries_path],
+            task_name=(
+                'calc downstream normalized beneficiaries for '
                 f'{target_hab_normalized_beneficiaries_path}'))
 
         # mask this result to the target
-
         normalize_by_dist_task.join()
         stitch_queue_tuple[0].put(
             (target_beneficiaries_path, working_dir, job_id))
