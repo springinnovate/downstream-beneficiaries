@@ -1011,7 +1011,31 @@ def main(watershed_ids=None):
 
     completed_work_queue.put(None)
     job_complete_worker_thread.join()
+    LOGGER.info('compressing/overview/ecoshard result')
+
+    hash_thread_list = []
+    for pop_id in stitch_raster_path_map:
+        for raster_path in stitch_raster_path_map[pop_id]:
+            hash_thread = threading.Thread(
+                target=hash_overview_compress_raster,
+                args=(raster_path,))
+            hash_thread.start()
+            hash_thread_list.append(hash_thread)
+
+    LOGGER.info('waiting for compress/overview/ecoshard complete')
+    for hash_thread in hash_thread_list:
+        hash_thread.join()
     LOGGER.info('all done')
+
+
+def hash_overview_compress_raster(raster_path):
+    """Compress, overview, then hash the raster."""
+    compressed_path = '%s_compressed_overviews%s' % os.path.splitext(
+        raster_path)
+    ecoshard.build_overviews(raster_path)
+    ecoshard.compress_raster(
+        raster_path, compressed_path, compression_algorithm='LZW')
+    ecoshard.hash_file(compressed_path, rename=True)
 
 
 if __name__ == '__main__':
