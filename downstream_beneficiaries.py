@@ -216,7 +216,7 @@ def _mask_raster(base_raster_path, mask_raster_path, target_raster_path):
     pygeoprocessing.raster_calculator(
         [(base_raster_path, 1),
          (mask_raster_path, 1)], _mask_op,
-        target_raster_path, gdal.GDT_Float32, base_nodata)
+        target_raster_path, gdal.GDT_Float64, base_nodata)
 
 
 def normalize(
@@ -234,7 +234,7 @@ def normalize(
 
     pygeoprocessing.raster_calculator(
         [(base_raster_path, 1), (weight_raster_path, 1)], _safe_div_op,
-        target_raster_path, gdal.GDT_Float32, base_nodata)
+        target_raster_path, gdal.GDT_Float64, base_nodata)
 
 
 def process_watershed(
