@@ -741,20 +741,19 @@ def main(watershed_ids=None):
     LOGGER.info('start complete worker thread')
     global WATERSHEDS_TO_PROCESS_COUNT
     WATERSHEDS_TO_PROCESS_COUNT = 0
-    # expecting n stitch * number of pop simulations, used to determine when
-    # a directory can be cleaned up
+    # expecting 6 stitches, base, norm, habnorm times 2 pop scenarios
     job_complete_worker_thread = threading.Thread(
         target=job_complete_worker,
         args=(
-            completed_work_queue, work_db_path, args.clean_result,
-            len(stitch_raster_path_map) *
-            len(POPULATION_RASTER_URL_MAP)))
+            completed_work_queue, work_db_path, args.clean_result, 6))
     job_complete_worker_thread.start()
 
     # contains work queues for regular and normalized beneficiaries
     stitch_work_queue_list = [
-        (manager.Queue(N_TO_STITCH*2), manager.Queue(N_TO_STITCH*2))
-        for _ in range(len(stitch_raster_path_map))]
+        (manager.Queue(N_TO_STITCH*2),
+         manager.Queue(N_TO_STITCH*2),
+         manager.Queue(N_TO_STITCH*2))
+        for _ in range(2)]
     stitch_worker_process_list = []
     for stitch_work_queue_tuple, target_stitch_raster_path_list in zip(
             stitch_work_queue_list,
