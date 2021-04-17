@@ -199,6 +199,27 @@ def _create_outlet_raster(
     outlet_raster = None
 
 
+def mask_raster(base_raster_path, mask_raster_path, target_raster_path):
+    """Mask base by mask."""
+    base_nodata = pygeoprocessing.get_raster_info(
+        base_raster_path)['nodata'][0]
+
+    def _mask_op(base_array, mask_array):
+        result = numpy.empty_like(base_array)
+        result[:] = base_nodata
+        nodata_mask = numpy.isclose(base_array, base_nodata)
+        valid_mask = ~nodata_mask & mask_array
+        zero_mask = ~nodata_mask & (mask_array == 0)
+        result[valid_mask] = base_array[valid_mask]
+        result[zero_mask] = 0
+        return result
+
+    pygeoprocessing.raster_calculator(
+        [(base_raster_path, 1),
+         (mask_raster_path, 1)], _mask_op,
+        target_raster_path, gdal.GDT_Float32, base_nodata)
+
+
 def normalize(
         base_raster_path,
         weight_raster_path,
@@ -443,11 +464,11 @@ def process_watershed(
                 'calc downstream normalized beneficiaries for '
                 f'{target_normalized_beneficiaries_path}'))
 
-
         # divide aligned_pop_raster_path by hab accum to get normalized by
         # hab then route it downstream
-        pop_hab_normal_by_upstream_raster_path = '%s_hab_norm%s' % os.path.splitext(
-            aligned_pop_raster_path)
+        pop_hab_normal_by_upstream_raster_path = (
+            '%s_hab_norm%s' % os.path.splitext(
+                aligned_pop_raster_path))
 
         normalize_by_dist_task = task_graph.add_task(
             func=normalize,
@@ -459,24 +480,38 @@ def process_watershed(
             task_name=(
                 f'normalized beneficiaries for '
                 f'{pop_hab_normal_by_upstream_raster_path}'))
+        hab_pre_mask_normalized_beneficiaries_path = (
+            '%s_pre_mask%s' % os.path.splitext(
+                target_hab_normalized_beneficiaries_path))
         downstream_norm_hab_bene_task = task_graph.add_task(
             func=pygeoprocessing.routing.distance_to_channel_mfd,
             args=(
                 (flow_dir_mfd_raster_path, 1), (outlet_raster_path, 1),
-                target_hab_normalized_beneficiaries_path),
+                hab_pre_mask_normalized_beneficiaries_path),
             kwargs={
                 'weight_raster_path_band': (
                     pop_hab_normal_by_upstream_raster_path, 1)},
             dependent_task_list=[
                 pop_warp_task, create_outlet_raster_task, flow_dir_mfd_task,
                 normalize_by_dist_task],
-            target_path_list=[target_hab_normalized_beneficiaries_path],
+            target_path_list=[hab_pre_mask_normalized_beneficiaries_path],
             task_name=(
                 'calc downstream normalized beneficiaries for '
-                f'{target_hab_normalized_beneficiaries_path}'))
-
+                f'{hab_pre_mask_normalized_beneficiaries_path}'))
         # mask this result to the target
-        normalize_by_dist_task.join()
+        task_graph.add_task(
+            func=_mask_raster,
+            args=(
+                hab_pre_mask_normalized_beneficiaries_path,
+                warped_habitat_raster_path,
+                target_hab_normalized_beneficiaries_path),
+            dependent_task_list=[
+                downstream_norm_hab_bene_task,
+                align_task],
+            target_path_list=[target_hab_normalized_beneficiaries_path],
+            task_name=f'mask {target_hab_normalized_beneficiaries_path}')
+
+        task_graph.join()
         stitch_queue_tuple[0].put(
             (target_beneficiaries_path, working_dir, job_id))
         stitch_queue_tuple[1].put(
