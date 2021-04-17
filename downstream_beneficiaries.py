@@ -861,7 +861,7 @@ def main(watershed_ids=None):
             watershed_layer = watershed_vector.GetLayer()
             watershed_fid_list.extend([
                 (watershed_feature.GetGeometryRef().Area(),
-                 watershed_feature.GetFID(), len(watershed_path_list))
+                 watershed_feature.GetFID(), len(watershed_path_list)-1)
                 for watershed_feature in watershed_layer])
             watershed_layer = None
             watershed_vector = None
