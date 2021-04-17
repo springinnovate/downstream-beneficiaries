@@ -1032,9 +1032,9 @@ def hash_overview_compress_raster(raster_path):
     """Compress, overview, then hash the raster."""
     compressed_path = '%s_compressed_overviews%s' % os.path.splitext(
         raster_path)
-    ecoshard.build_overviews(raster_path)
     ecoshard.compress_raster(
         raster_path, compressed_path, compression_algorithm='LZW')
+    ecoshard.build_overviews(compressed_path)
     compressed_raster = gdal.OpenEx(
         compressed_path, gdal.OF_RASTER | gdal.GA_Update)
     compressed_raster_band = compressed_raster.GetRasterBand(1)
