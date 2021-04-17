@@ -237,6 +237,43 @@ def normalize(
         target_raster_path, gdal.GDT_Float64, base_nodata)
 
 
+def _sum_raster(raster_path):
+    """Return the sum of the raster."""
+    running_sum = 0
+    nodata = pygeoprocessing.get_raster_info(raster_path)['nodata'][0]
+    for _, data_array in pygeoprocessing.iterblocks((raster_path, 1)):
+        if nodata is not None:
+            valid_mask = ~numpy.isclose(data_array, nodata)
+        else:
+            valid_mask = slice(-1)
+        running_sum += numpy.sum(data_array[valid_mask])
+    return running_sum
+
+
+def rescale_by_base(base_raster_path, new_raster_path, target_raster_path):
+    """Target is new * base_max/new_max."""
+    base_sum = _sum_raster(base_raster_path)
+    new_sum = _sum_raster(new_raster_path)
+
+    base_nodata = pygeoprocessing.get_raster_info(base_raster_path)['nodata'][0]
+    new_raster_info = pygeoprocessing.get_raster_info(new_raster_path)['nodata'][0]
+
+    def _mult_op(base_array, scale):
+        """Scale non-nodata by scale."""
+        result = numpy.copy(base_array)
+        if base_nodata is not None:
+            valid_mask = ~numpy.isclose(base_array, base_nodata)
+        else:
+            valid_mask = slice(-1)
+        result[valid_mask] *= scale
+        return result
+
+    pygeoprocessing.raster_calculator(
+        [(base_raster_path, 1), (base_sum/new_sum, 'raw')], _mult_op,
+        target_raster_path, new_raster_info['datatype'],
+        new_raster_info['nodata'][0])
+
+
 def process_watershed(
         job_id, watershed_vector_path, watershed_fid, dem_path, hab_path,
         pop_raster_path_list, target_beneficiaries_path_list,
@@ -447,20 +484,34 @@ def process_watershed(
             task_name=(
                 f'normalized beneficiaries for '
                 f'{pop_normal_by_upstream_raster_path}'))
+
+        prescaled_normalized_beneficiaries_path = (
+            '%s_prescaled%s' % os.path.splitext(
+                target_normalized_beneficiaries_path))
         downstream_norm_bene_task = task_graph.add_task(
             func=pygeoprocessing.routing.distance_to_channel_mfd,
             args=(
                 (flow_dir_mfd_raster_path, 1), (outlet_raster_path, 1),
-                target_normalized_beneficiaries_path),
+                prescaled_normalized_beneficiaries_path),
             kwargs={
                 'weight_raster_path_band': (pop_normal_by_upstream_raster_path, 1)},
             dependent_task_list=[
                 pop_warp_task, create_outlet_raster_task, flow_dir_mfd_task,
                 normalize_by_dist_task],
-            target_path_list=[target_normalized_beneficiaries_path],
+            target_path_list=[prescaled_normalized_beneficiaries_path],
             task_name=(
                 'calc downstream normalized beneficiaries for '
-                f'{target_normalized_beneficiaries_path}'))
+                f'{prescaled_normalized_beneficiaries_path}'))
+
+        task_graph.add_task(
+            func=rescale_by_base,
+            args=(
+                aligned_pop_raster_path,
+                prescaled_normalized_beneficiaries_path,
+                target_normalized_beneficiaries_path),
+            target_path_list=[target_normalized_beneficiaries_path],
+            dependent_task_list=[downstream_norm_bene_task],
+            task_name=f'rescale {target_normalized_beneficiaries_path}')
 
         # divide aligned_pop_raster_path by hab accum to get normalized by
         # hab then route it downstream
@@ -497,17 +548,30 @@ def process_watershed(
                 'calc downstream normalized beneficiaries for '
                 f'{hab_pre_mask_normalized_beneficiaries_path}'))
         # mask this result to the target
+        prescaled_hab_normalized_beneficiaries_path = (
+            '%s_prescaled%s' % os.path.splitext(
+                target_hab_normalized_beneficiaries_path))
         mask_downstream_norm_bene_task = task_graph.add_task(
             func=_mask_raster,
             args=(
                 hab_pre_mask_normalized_beneficiaries_path,
                 warped_habitat_raster_path,
-                target_hab_normalized_beneficiaries_path),
+                prescaled_hab_normalized_beneficiaries_path),
             dependent_task_list=[
                 downstream_norm_hab_bene_task,
                 align_task],
+            target_path_list=[prescaled_hab_normalized_beneficiaries_path],
+            task_name=f'mask {prescaled_hab_normalized_beneficiaries_path}')
+
+        task_graph.add_task(
+            func=rescale_by_base,
+            args=(
+                aligned_pop_raster_path,
+                prescaled_hab_normalized_beneficiaries_path,
+                target_hab_normalized_beneficiaries_path),
             target_path_list=[target_hab_normalized_beneficiaries_path],
-            task_name=f'mask {target_hab_normalized_beneficiaries_path}')
+            dependent_task_list=[mask_downstream_norm_bene_task],
+            task_name=f'rescale {target_hab_normalized_beneficiaries_path}')
 
         task_graph.join()
         stitch_queue_tuple[0].put(
