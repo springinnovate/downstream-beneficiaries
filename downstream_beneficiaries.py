@@ -104,6 +104,7 @@ for dir_path in [WORKSPACE_DIR, WATERSHED_WORKSPACE_DIR]:
     os.makedirs(dir_path, exist_ok=True)
 N_TO_STITCH = 100
 
+
 def _warp_and_wgs84_area_scale(
         base_raster_path, model_raster_path, target_raster_path,
         interpolation_alg, clip_bb, watershed_vector_path, watershed_fid,
@@ -164,7 +165,7 @@ def _warp_and_wgs84_area_scale(
 
     pygeoprocessing.raster_calculator(
         [(warped_raster_path, 1), (-1, 'raw'),
-         model_raster_info['pixel_size'][0]**2,
+         numpy.array(model_raster_info['pixel_size'][0]**2),
          (numpy.float32, 'raw')], _mult_op,
         target_raster_path,
         gdal.GDT_Float32, -1)
