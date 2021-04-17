@@ -123,8 +123,7 @@ def _warp_and_wgs84_area_scale(
             'mask_vector_where_filter': f'"FID"={watershed_fid}'},
         working_dir=working_dir)
 
-    lat_min = base_raster_info['bounding_box'][1]
-    lat_max = base_raster_info['bounding_box'][3]
+    lat_min, lat_max = clip_bb[1], clip_bb[3]
     _, n_rows = pygeoprocessing.get_raster_info(
         clipped_base_path)['raster_size']
     LOGGER.debug(f'lat_min: {lat_min}, lat_max: {lat_max} n_rows: {n_rows}')
