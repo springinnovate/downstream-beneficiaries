@@ -277,6 +277,7 @@ def process_watershed(
         lat_lng_watershed_bb,
         watershed_info['projection_wkt'],
         epsg_sr.ExportToWkt())
+    LOGGER.debug(f'lat_lng_watershed_bb: {lat_lng_watershed_bb}\ntarget_watershed_bb: {target_watershed_bb}')
 
     watershed_vector = None
     watershed_layer = None
