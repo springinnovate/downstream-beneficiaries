@@ -255,7 +255,7 @@ def process_watershed(
         None.
     """
     working_dir = os.path.join(
-        os.path.dirname(target_beneficiaries_path_list[0]), job_id)
+        os.path.dirname(target_beneficiaries_path_list[0]))
     os.makedirs(working_dir, exist_ok=True)
     LOGGER.debug(f'create working directory for {job_id} at {working_dir}')
 
