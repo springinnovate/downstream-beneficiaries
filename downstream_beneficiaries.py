@@ -206,7 +206,7 @@ def _mask_raster(base_raster_path, mask_raster_path, target_raster_path):
     def _mask_op(base_array, mask_array):
         result = numpy.full(
             base_array.shape, base_nodata, dtype=numpy.float32)
-        valid_mask = ~numpy.isclose(base_array, base_nodata)
+        valid_mask = ~numpy.isclose(base_array, base_nodata) & (mask_array == 1)
         result[valid_mask] = base_array[valid_mask]
         return result
 
