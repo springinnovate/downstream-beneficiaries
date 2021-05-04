@@ -204,13 +204,10 @@ def _mask_raster(base_raster_path, mask_raster_path, target_raster_path):
         base_raster_path)['nodata'][0]
 
     def _mask_op(base_array, mask_array):
-        result = numpy.empty_like(base_array)
-        result[:] = base_nodata
-        nodata_mask = numpy.isclose(base_array, base_nodata)
-        valid_mask = ~nodata_mask & (mask_array == 1)
-        zero_mask = ~nodata_mask & (mask_array == 0)
+        result = numpy.full(
+            base_array.shape, base_nodata, dtype=numpy.float32)
+        valid_mask = ~numpy.isclose(base_array, base_nodata)
         result[valid_mask] = base_array[valid_mask]
-        result[zero_mask] = 0
         return result
 
     pygeoprocessing.raster_calculator(
@@ -491,7 +488,7 @@ def process_watershed(
                 warped_habitat_raster_path,
                 target_hab_normalized_beneficiaries_path),
             dependent_task_list=[
-                downstream_norm_hab_bene_task,
+                normalize_by_pop_sum_task,
                 align_task],
             target_path_list=[target_hab_normalized_beneficiaries_path],
             task_name=f'mask {target_hab_normalized_beneficiaries_path}')
