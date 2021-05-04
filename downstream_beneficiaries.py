@@ -381,7 +381,7 @@ def process_watershed(
             (warped_dem_raster_path, 1), filled_dem_raster_path),
         kwargs={
             'working_dir': working_dir,
-            'max_pixel_fill_count': 10000},
+            'max_pixel_fill_count': 1000000},
         dependent_task_list=[align_task],
         target_path_list=[filled_dem_raster_path],
         task_name=f'fill dem pits to {filled_dem_raster_path}')
@@ -597,6 +597,7 @@ def process_watershed(
 def get_completed_job_id_set(db_path):
     """Return set of completed jobs, or initialize if not set."""
     if not os.path.exists(db_path):
+        LOGGER.debug(f'dbpath: {db_path}')
         connection = sqlite3.connect(db_path)
         cursor = connection.execute(
             """
@@ -1046,7 +1047,6 @@ def hash_overview_compress_raster(raster_path):
     compressed_raster_band = None
     compressed_raster = None
     ecoshard.hash_file(compressed_path, rename=True)
-
 
 
 if __name__ == '__main__':
