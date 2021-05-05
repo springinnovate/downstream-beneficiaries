@@ -288,10 +288,12 @@ def rescale_by_base(base_raster_path, new_raster_path, target_raster_path):
 
 def process_watershed(
         job_id, watershed_vector_path, watershed_fid, dem_path, hab_path,
-        pop_raster_path_list, target_beneficiaries_path_list,
+        pop_raster_path_list,
+        target_beneficiaries_path_list,
         target_normalized_beneficiaries_path_list,
         target_hab_normalized_beneficiaries_path_list,
-        target_stitch_work_queue_list):
+        target_stitch_work_queue_list,
+        create_flow_accum_raster=False):
     """Calculate downstream beneficiaries for this watershed.
 
     Args:
@@ -315,6 +317,8 @@ def process_watershed(
             put done signals in when each beneficiary raster is done. The
             first element is for the standard target, the second for the
             normalized raster.
+        create_flow_accum_raster (bool): if True, create a flow accumulation
+            of the watershed... useful for debugging.
 
     Return:
         None.
@@ -400,6 +404,17 @@ def process_watershed(
         dependent_task_list=[fill_pits_task],
         target_path_list=[flow_dir_mfd_raster_path],
         task_name=f'calc flow dir for {flow_dir_mfd_raster_path}')
+
+    if create_flow_accum_raster:
+        flow_accum_mfd_raster_path = os.path.join(
+            working_dir, f'{job_id}_flow_accum_mfd.tif')
+        flow_accum_mfd_task = task_graph.add_task(
+            func=pygeoprocessing.routing.flow_accumulation_mfd,
+            args=(
+                (flow_dir_mfd_raster_path, 1), flow_accum_mfd_raster_path),
+            dependent_task_list=[flow_dir_mfd_task],
+            target_path_list=[flow_accum_mfd_raster_path],
+            task_name=f'calc flow dir for {flow_accum_mfd_raster_path}')
 
     outlet_vector_path = os.path.join(
         working_dir, f'{job_id}_outlet_vector.gpkg')
@@ -656,7 +671,7 @@ def stitch_worker(
                 stitch_buffer_list, ['near']*n_buffered,
                 (target_stitch_raster_path, 1),
                 area_weight_m2_to_wgs84=True,
-                overlap_algorithm='etch')
+                overlap_algorithm='replace')
             for working_dir, job_id in done_buffer:
                 stitch_done_queue.put((working_dir, job_id))
             stitch_buffer_list = []
@@ -852,7 +867,8 @@ def main(watershed_ids=None):
                 [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
                      watershed_fid}_hab_normalized.tif''')
                  for raster_id in POPULATION_RASTER_URL_MAP.keys()],
-                stitch_work_queue_list)
+                stitch_work_queue_list,
+                create_flow_accum_raster=True)
     else:
         watershed_worker_process_list = []
         for _ in range(multiprocessing.cpu_count()):
