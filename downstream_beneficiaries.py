@@ -217,23 +217,29 @@ def _mask_raster(base_raster_path, mask_raster_path, target_raster_path):
 
 
 def normalize_by_raster_sum(
-        raster_to_sum_path,base_raster_path, target_raster_path):
+        raster_that_target_should_sum_to_path, base_raster_path, target_raster_path):
     """Normalize base by raster sum."""
     raster_to_sum_nodata = pygeoprocessing.get_raster_info(
-        raster_to_sum_path)['nodata'][0]
-    total_sum = 0.0
-    for _, data_block in pygeoprocessing.iterblocks((raster_to_sum_path, 1)):
+        raster_that_target_should_sum_to_path)['nodata'][0]
+    target_sum = 0.0
+    for _, data_block in pygeoprocessing.iterblocks((raster_that_target_should_sum_to_path, 1)):
         valid_mask = ~numpy.isclose(data_block, raster_to_sum_nodata)
-        total_sum += numpy.sum(data_block[valid_mask])
+        target_sum += numpy.sum(data_block[valid_mask])
 
     base_nodata = pygeoprocessing.get_raster_info(
         base_raster_path)['nodata'][0]
+    base_sum = 0.0
+    for _, data_block in pygeoprocessing.iterblocks((base_raster_path, 1)):
+        valid_mask = ~numpy.isclose(data_block, base_nodata)
+        base_sum += numpy.sum(data_block[valid_mask])
+
+
     def _div_by_sum(data_array):
         result = numpy.full(
             data_array.shape, base_nodata, dtype=numpy.float32)
         valid_mask = (~numpy.isclose(data_array, base_nodata))
         if total_sum > 0:
-            result[valid_mask] = data_array[valid_mask]/total_sum
+            result[valid_mask] = data_array[valid_mask]/base_sum*target_sum
         return result
 
     pygeoprocessing.raster_calculator(
@@ -381,6 +387,22 @@ def process_watershed(
             f'align and clip and warp dem/hab to {warped_dem_raster_path} '
             f'{warped_habitat_raster_path}'))
 
+    get_drain_sink_pixel_task = task_graph.add_task(
+        func=pygeoprocessing.routing.detect_lowest_drain_and_sink,
+        args=((warped_dem_raster_path, 1)),
+        store_result=True,
+        dependent_task_list=[align_task],
+        task_name=f'get drain/sink pixel for {warped_dem_raster_path}')
+
+    edge_pixel, edge_height, pit_pixel, pit_height = (
+        get_drain_sink_pixel_task.get())
+
+    if pit_height < edge_height - 20:
+        # if the pit is 20 m lower than edge it's probably a big sink
+        single_outlet_tuple = pit_pixel
+    else:
+        single_outlet_tuple = edge_pixel
+
     filled_dem_raster_path = os.path.join(
         working_dir, f'{job_id}_filled_dem.tif')
     fill_pits_task = task_graph.add_task(
@@ -389,7 +411,8 @@ def process_watershed(
             (warped_dem_raster_path, 1), filled_dem_raster_path),
         kwargs={
             'working_dir': working_dir,
-            'max_pixel_fill_count': 1000000},
+            'max_pixel_fill_count': -1,
+            'single_outlet_tuple': single_outlet_tuple},
         dependent_task_list=[align_task],
         target_path_list=[filled_dem_raster_path],
         task_name=f'fill dem pits to {filled_dem_raster_path}')
