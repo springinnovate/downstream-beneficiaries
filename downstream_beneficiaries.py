@@ -925,7 +925,6 @@ def main(watershed_ids=None):
                 os.path.splitext(watershed_path)[0])}_{watershed_fid}'''
             if job_id in completed_job_set:
                 continue
-            WATERSHEDS_TO_PROCESS_COUNT += 1
 
             workspace_dir = os.path.join(WATERSHED_WORKSPACE_DIR, job_id)
             watershed_work_queue.put((
@@ -944,6 +943,9 @@ def main(watershed_ids=None):
                      watershed_fid}_hab_normalized.tif''')
                   for raster_id in POPULATION_RASTER_URL_MAP.keys()],
                  stitch_work_queue_list)))
+            WATERSHEDS_TO_PROCESS_COUNT += 1
+            if WATERSHEDS_TO_PROCESS_COUNT == args.max_to_run:
+                break
 
         LOGGER.debug('waiting for watershed workers to be done')
         watershed_work_queue.put(None)
@@ -1004,6 +1006,8 @@ if __name__ == '__main__':
     parser.add_argument(
         '--clean_result', action='store_true',
         help='use this flag to delete the workspace after stitching')
+    parser.add_argument(
+        '--max_to_run', type=int, help='max number of watersheds to process')
 
     args = parser.parse_args()
 
