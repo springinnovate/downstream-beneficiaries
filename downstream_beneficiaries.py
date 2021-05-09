@@ -235,10 +235,9 @@ def normalize_by_raster_sum(
 
 
     def _div_by_sum(data_array):
-        result = numpy.full(
-            data_array.shape, base_nodata, dtype=numpy.float32)
-        valid_mask = (~numpy.isclose(data_array, base_nodata))
-        if total_sum > 0:
+        result = numpy.copy(data_array)
+        valid_mask = ~numpy.isclose(data_array, base_nodata)
+        if base_sum > 0:
             result[valid_mask] = data_array[valid_mask]/base_sum*target_sum
         return result
 
@@ -389,7 +388,7 @@ def process_watershed(
 
     get_drain_sink_pixel_task = task_graph.add_task(
         func=pygeoprocessing.routing.detect_lowest_drain_and_sink,
-        args=((warped_dem_raster_path, 1)),
+        args=((warped_dem_raster_path, 1),),
         store_result=True,
         dependent_task_list=[align_task],
         task_name=f'get drain/sink pixel for {warped_dem_raster_path}')
@@ -588,14 +587,13 @@ def job_complete_worker(
         ``None``
     """
     try:
-        last_time = time.time()
+        start_time = time.time()
         connection = sqlite3.connect(work_db_path)
         uncommited_count = 0
         processed_so_far = 0
         working_jobs = collections.defaultdict(int)
         global WATERSHEDS_TO_PROCESS_COUNT
         LOGGER.info(f'started job complete worker, initial watersheds {WATERSHEDS_TO_PROCESS_COUNT}')
-        watersheds_per_sec_list = []
         while True:
             payload = completed_work_queue.get()
             if payload is None:
@@ -619,14 +617,8 @@ def job_complete_worker(
             uncommited_count += 1
             if uncommited_count > N_TO_STITCH:
                 connection.commit()
-                current_time = time.time()
-                watersheds_per_sec_list.append(
-                    uncommited_count / (current_time - last_time))
-                if len(watersheds_per_sec_list) > 30:
-                    watersheds_per_sec_list.pop(0)
-                watersheds_per_sec = numpy.mean(watersheds_per_sec_list)
-                last_time = current_time
                 processed_so_far += uncommited_count
+                watersheds_per_sec = processed_so_far / (time.time() - start_time)
                 uncommited_count = 0
                 remaining_time_s = (
                     WATERSHEDS_TO_PROCESS_COUNT / watersheds_per_sec)
