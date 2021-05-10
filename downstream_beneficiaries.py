@@ -887,6 +887,7 @@ def main(watershed_ids=None):
             f'valid watershed basenames: {valid_watershed_basenames} '
             f'valid valid_watersheds: {valid_watersheds} ')
 
+    duplicate_job_index = 0
     for watershed_path in glob.glob(
             os.path.join(watershed_root_dir, '*.shp')):
         LOGGER.debug(f'processing {watershed_path}')
@@ -925,6 +926,9 @@ def main(watershed_ids=None):
                     int(v//5)*5 for v in (
                         watershed_centroid.GetX(), watershed_centroid.GetY())]
                 job_id = (f'{watershed_basename}_{(x, y)}_{epsg}', epsg)
+                if len(watershed_fid_index[job_id][0]) > 1000:
+                    job_id = (f'{watershed_basename}_{(x, y)}_{epsg}_{duplicate_job_index}', epsg)
+                    duplicate_job_index += 1
                 watershed_fid_index[job_id][0].append(fid)
             watershed_envelope = watershed_geom.GetEnvelope()
             watershed_bb = [watershed_envelope[i] for i in [0, 2, 1, 3]]
