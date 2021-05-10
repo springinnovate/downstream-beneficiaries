@@ -967,13 +967,13 @@ def main(watershed_ids=None):
                  hab_mask_raster_path,
                  [pop_raster_path_map[raster_id]
                   for raster_id in POPULATION_RASTER_URL_MAP.keys()],
-                 [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
+                 [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{
                      job_id}.tif''')
                   for raster_id in POPULATION_RASTER_URL_MAP.keys()],
-                 [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
+                 [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{
                      job_id}_normalized.tif''')
                   for raster_id in POPULATION_RASTER_URL_MAP.keys()],
-                 [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
+                 [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{
                      job_id}_hab_normalized.tif''')
                   for raster_id in POPULATION_RASTER_URL_MAP.keys()],
                  stitch_work_queue_list)))
