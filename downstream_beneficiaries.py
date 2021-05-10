@@ -925,7 +925,7 @@ def main(watershed_ids=None):
                 x, y = [
                     int(v//5)*5 for v in (
                         watershed_centroid.GetX(), watershed_centroid.GetY())]
-                base_job_id = (f'{watershed_basename}_{(x, y)}_{epsg}', epsg)
+                base_job_id = (f'{watershed_basename}_{x}_{y}_{epsg}', epsg)
                 job_id = (f'{base_job_id}_{duplicate_job_index_map[base_job_id]}', epsg)
                 if len(watershed_fid_index[job_id][0]) > 1000:
                     duplicate_job_index_map[base_job_id] += 1
