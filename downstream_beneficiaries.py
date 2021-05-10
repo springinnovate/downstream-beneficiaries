@@ -358,7 +358,9 @@ def process_watershed(
         working_dir, f'{job_id}_hab.tif')
     LOGGER.debug(f'align and resize raster stack {job_id} at {working_dir}')
     mask_vector_where_filter = (
-        ' and '.join([f'"FID"={v}' for v in watershed_fid_list]))
+        f'"FID" in ('
+        f'{", ".join([str(v) for v in watershed_fid_list])})')
+    LOGGER.debug(mask_vector_where_filter)
     align_task = task_graph.add_task(
         func=pygeoprocessing.align_and_resize_raster_stack,
         args=(
@@ -378,22 +380,26 @@ def process_watershed(
             f'align and clip and warp dem/hab to {warped_dem_raster_path} '
             f'{warped_habitat_raster_path}'))
 
-    LOGGER.debug(f'detect_lowest_drain_and_sink {job_id} at {working_dir}')
-    get_drain_sink_pixel_task = task_graph.add_task(
-        func=pygeoprocessing.routing.detect_lowest_drain_and_sink,
-        args=((warped_dem_raster_path, 1),),
-        store_result=True,
-        dependent_task_list=[align_task],
-        task_name=f'get drain/sink pixel for {warped_dem_raster_path}')
+    # force a drain on the watershed if its large enough
+    if len(watershed_fid_list) == 1:
+        LOGGER.debug(f'detect_lowest_drain_and_sink {job_id} at {working_dir}')
+        get_drain_sink_pixel_task = task_graph.add_task(
+            func=pygeoprocessing.routing.detect_lowest_drain_and_sink,
+            args=((warped_dem_raster_path, 1),),
+            store_result=True,
+            dependent_task_list=[align_task],
+            task_name=f'get drain/sink pixel for {warped_dem_raster_path}')
 
-    edge_pixel, edge_height, pit_pixel, pit_height = (
-        get_drain_sink_pixel_task.get())
+        edge_pixel, edge_height, pit_pixel, pit_height = (
+            get_drain_sink_pixel_task.get())
 
-    if pit_height < edge_height - 20:
-        # if the pit is 20 m lower than edge it's probably a big sink
-        single_outlet_tuple = pit_pixel
+        if pit_height < edge_height - 20:
+            # if the pit is 20 m lower than edge it's probably a big sink
+            single_outlet_tuple = pit_pixel
+        else:
+            single_outlet_tuple = edge_pixel
     else:
-        single_outlet_tuple = edge_pixel
+        single_outlet_tuple = None
 
     filled_dem_raster_path = os.path.join(
         working_dir, f'{job_id}_filled_dem.tif')
@@ -885,7 +891,7 @@ def main(watershed_ids=None):
             os.path.join(watershed_root_dir, '*.shp')):
         LOGGER.debug(f'processing {watershed_path}')
         watershed_fid_index = collections.defaultdict(
-            lambda: [list(), list()])
+            lambda: [list(), list(), 0])
         watershed_basename = os.path.splitext(
             os.path.basename(watershed_path))[0]
         if watershed_ids:
@@ -897,10 +903,14 @@ def main(watershed_ids=None):
             fid = watershed_feature.GetFID()
 
             if watershed_ids:
+                if not valid_watersheds:
+                    # all done, we scheduled them all
+                    break
                 # skip on immediate mode
                 if (watershed_basename, fid) not in valid_watersheds:
                     continue
-            LOGGER.info(f'scheduling {(watershed_basename, fid)}')
+                valid_watersheds.remove((watershed_basename, fid))
+                LOGGER.info(f'scheduling {(watershed_basename, fid)}')
             watershed_geom = watershed_feature.GetGeometryRef()
             watershed_centroid = watershed_geom.Centroid()
             epsg = get_utm_zone(
@@ -912,24 +922,36 @@ def main(watershed_ids=None):
             else:
                 # clamp into 5 degree square
                 x, y = [
-                    int(v//5)*5 for v in get_centroid(vector_path, fid)]
+                    int(v//5)*5 for v in (
+                        watershed_centroid.GetX(), watershed_centroid.GetY())]
                 job_id = (f'{watershed_basename}_{(x, y)}_{epsg}', epsg)
                 watershed_fid_index[job_id][0].append(fid)
             watershed_envelope = watershed_geom.GetEnvelope()
             watershed_bb = [watershed_envelope[i] for i in [0, 2, 1, 3]]
             watershed_fid_index[job_id][1].append(watershed_bb)
+            watershed_fid_index[job_id][2] += watershed_geom.Area()
 
         watershed_geom = None
         watershed_feature = None
         watershed_layer = None
         watershed_vector = None
 
-        LOGGER.info(f'scheduling {watershed_path}')
-        for (job_id, epsg), (fid_list, watershed_envelope_list) in \
+        processing_list = []
+        for (job_id, epsg), (fid_list, watershed_envelope_list, area) in \
                 watershed_fid_index.items():
+            processing_list.append(
+                (area, job_id, epsg, fid_list, watershed_envelope_list))
+
+        for (area, job_id, epsg, fid_list, watershed_envelope_list) in \
+                sorted(processing_list, reverse=True):
             if job_id in completed_job_set:
                 continue
+            if WATERSHEDS_TO_PROCESS_COUNT == args.max_to_run:
+                break
 
+            LOGGER.info(
+                f'scheduling {job_id} of area {area} and {len(fid_list)} '
+                f'watersheds')
             job_bb = pygeoprocessing.merge_bounding_box_list(
                 watershed_envelope_list, 'union')
 
@@ -951,8 +973,6 @@ def main(watershed_ids=None):
                   for raster_id in POPULATION_RASTER_URL_MAP.keys()],
                  stitch_work_queue_list)))
             WATERSHEDS_TO_PROCESS_COUNT += 1
-            if WATERSHEDS_TO_PROCESS_COUNT == args.max_to_run:
-                break
 
     LOGGER.debug('waiting for watershed workers to be done')
     watershed_work_queue.put(None)
