@@ -107,7 +107,8 @@ N_TO_STITCH = 100
 
 def _warp_and_wgs84_area_scale(
         base_raster_path, model_raster_path, target_raster_path,
-        interpolation_alg, clip_bb, watershed_vector_path, watershed_fid,
+        interpolation_alg, clip_bb, watershed_vector_path,
+        mask_vector_where_filter,
         working_dir):
     base_raster_info = pygeoprocessing.get_raster_info(base_raster_path)
     model_raster_info = pygeoprocessing.get_raster_info(model_raster_path)
@@ -118,7 +119,8 @@ def _warp_and_wgs84_area_scale(
         target_bb=clip_bb,
         vector_mask_options={
             'mask_vector_path': watershed_vector_path,
-            'mask_vector_where_filter': f'"FID"={watershed_fid}'},
+            'mask_vector_where_filter': mask_vector_where_filter,
+            },
         working_dir=working_dir)
 
     lat_min, lat_max = clip_bb[1], clip_bb[3]
@@ -292,8 +294,9 @@ def rescale_by_base(base_raster_path, new_raster_path, target_raster_path):
 
 
 def process_watershed(
-        job_id, watershed_vector_path, watershed_fid, dem_path, hab_path,
-        pop_raster_path_list,
+        job_id, watershed_vector_path, watershed_fid_list, epsg_code,
+        lat_lng_watershed_bb, dem_path,
+        hab_path, pop_raster_path_list,
         target_beneficiaries_path_list,
         target_normalized_beneficiaries_path_list,
         target_hab_normalized_beneficiaries_path_list,
@@ -305,7 +308,10 @@ def process_watershed(
         job_id (str): unique ID identifying this job, can be used to
             create unique workspaces.
         watershed_vector_path (str): path to watershed vector
-        watershed_fid (str): watershed FID to process
+        watershed_fid_list (str): list of watershed ids to process
+        epsg_code (int): EPSG zone to locally project into
+        lat_lng_watershed_bb (list): lat/lng bounding box for the fids
+            that are in `watershed_fid_list`.
         dem_path (str): path to DEM raster
         hab_path (str): path to habitat mask raster
         pop_raster_path_list (list): list of population rasters to route
@@ -336,38 +342,23 @@ def process_watershed(
     task_graph = taskgraph.TaskGraph(working_dir, -1)
 
     watershed_info = pygeoprocessing.get_vector_info(watershed_vector_path)
-    watershed_vector = gdal.OpenEx(watershed_vector_path, gdal.OF_VECTOR)
-    watershed_layer = watershed_vector.GetLayer()
-    watershed_feature = watershed_layer.GetFeature(watershed_fid)
-    watershed_geom = watershed_feature.GetGeometryRef()
-    watershed_centroid = watershed_geom.Centroid()
-    utm_code = (
-        math.floor((watershed_centroid.GetX() + 180)/6) % 60) + 1
-    lat_code = 6 if watershed_centroid.GetY() > 0 else 7
-    epsg_code = int('32%d%02d' % (lat_code, utm_code))
+
     epsg_sr = osr.SpatialReference()
     epsg_sr.ImportFromEPSG(epsg_code)
 
-    watershed_envelope = watershed_geom.GetEnvelope()
-    # swizzle the envelope order that by default is xmin/xmax/ymin/ymax
-    lat_lng_watershed_bb = [watershed_envelope[i] for i in [0, 2, 1, 3]]
     target_watershed_bb = pygeoprocessing.transform_bounding_box(
         lat_lng_watershed_bb,
         watershed_info['projection_wkt'],
         epsg_sr.ExportToWkt())
-
-    watershed_vector = None
-    watershed_layer = None
-    watershed_feature = None
-    watershed_geom = None
-    watershed_centroid = None
-    watershed_envelope = None
 
     target_pixel_size = (300, -300)
 
     warped_dem_raster_path = os.path.join(working_dir, f'{job_id}_dem.tif')
     warped_habitat_raster_path = os.path.join(
         working_dir, f'{job_id}_hab.tif')
+    LOGGER.debug(f'align and resize raster stack {job_id} at {working_dir}')
+    mask_vector_where_filter = (
+        ' and '.join([f'"FID"={v}' for v in watershed_fid_list]))
     align_task = task_graph.add_task(
         func=pygeoprocessing.align_and_resize_raster_stack,
         args=(
@@ -378,7 +369,8 @@ def process_watershed(
             'target_projection_wkt': epsg_sr.ExportToWkt(),
             'vector_mask_options': {
                 'mask_vector_path': watershed_vector_path,
-                'mask_vector_where_filter': f'"FID"={watershed_fid}'},
+                'mask_vector_where_filter': mask_vector_where_filter,
+                },
             },
         target_path_list=[
             warped_dem_raster_path, warped_habitat_raster_path],
@@ -386,6 +378,7 @@ def process_watershed(
             f'align and clip and warp dem/hab to {warped_dem_raster_path} '
             f'{warped_habitat_raster_path}'))
 
+    LOGGER.debug(f'detect_lowest_drain_and_sink {job_id} at {working_dir}')
     get_drain_sink_pixel_task = task_graph.add_task(
         func=pygeoprocessing.routing.detect_lowest_drain_and_sink,
         args=((warped_dem_raster_path, 1),),
@@ -404,6 +397,7 @@ def process_watershed(
 
     filled_dem_raster_path = os.path.join(
         working_dir, f'{job_id}_filled_dem.tif')
+    LOGGER.debug(f'fill_pits {job_id} at {working_dir}')
     fill_pits_task = task_graph.add_task(
         func=pygeoprocessing.routing.fill_pits,
         args=(
@@ -416,6 +410,7 @@ def process_watershed(
         target_path_list=[filled_dem_raster_path],
         task_name=f'fill dem pits to {filled_dem_raster_path}')
 
+    LOGGER.debug(f'flow_dir_mfd {job_id} at {working_dir}')
     flow_dir_mfd_raster_path = os.path.join(
         working_dir, f'{job_id}_flow_dir_mfd.tif')
     flow_dir_mfd_task = task_graph.add_task(
@@ -428,6 +423,7 @@ def process_watershed(
         task_name=f'calc flow dir for {flow_dir_mfd_raster_path}')
 
     if create_flow_accum_raster:
+        LOGGER.debug(f'create_flow_accum_raster {job_id} at {working_dir}')
         flow_accum_mfd_raster_path = os.path.join(
             working_dir, f'{job_id}_flow_accum_mfd.tif')
         flow_accum_mfd_task = task_graph.add_task(
@@ -440,6 +436,7 @@ def process_watershed(
 
     outlet_vector_path = os.path.join(
         working_dir, f'{job_id}_outlet_vector.gpkg')
+    LOGGER.debug(f'detect_outlets {job_id} at {working_dir}')
     detect_outlets_task = task_graph.add_task(
         func=pygeoprocessing.routing.detect_outlets,
         args=((flow_dir_mfd_raster_path, 1), 'mfd', outlet_vector_path),
@@ -449,6 +446,7 @@ def process_watershed(
 
     outlet_raster_path = os.path.join(
         working_dir, f'{job_id}_outlet_raster.tif')
+    LOGGER.debug(f'_create_outlet_raster {job_id} at {working_dir}')
     create_outlet_raster_task = task_graph.add_task(
         func=_create_outlet_raster,
         args=(
@@ -473,17 +471,19 @@ def process_watershed(
             f'''{job_id}_{os.path.basename(
                 os.path.splitext(pop_raster_path)[0])}.tif''')
 
+        LOGGER.debug(f'_warp_and_wgs84_area_scale {job_id} at {working_dir} {target_beneficiaries_path}')
         pop_warp_task = task_graph.add_task(
             func=_warp_and_wgs84_area_scale,
             args=(
                 pop_raster_path, warped_dem_raster_path,
                 aligned_pop_raster_path,
                 'near', lat_lng_watershed_bb,
-                watershed_vector_path, watershed_fid, working_dir),
+                watershed_vector_path, mask_vector_where_filter, working_dir),
             dependent_task_list=[align_task],
             target_path_list=[aligned_pop_raster_path],
             task_name=f'align {aligned_pop_raster_path}')
 
+        LOGGER.debug(f'distance_to_channel_mfd {job_id} at {working_dir} {target_beneficiaries_path}')
         downstream_bene_task = task_graph.add_task(
             func=pygeoprocessing.routing.distance_to_channel_mfd,
             args=(
@@ -502,6 +502,7 @@ def process_watershed(
         stitch_queue_tuple[0].put(
             (target_beneficiaries_path, working_dir, job_id))
 
+        LOGGER.debug(f'normalize_by_raster_sum {job_id} at {working_dir} {target_beneficiaries_path}')
         normalize_by_pop_sum_task = task_graph.add_task(
             func=normalize_by_raster_sum,
             args=(
@@ -518,6 +519,7 @@ def process_watershed(
         stitch_queue_tuple[1].put(
             (target_normalized_beneficiaries_path, working_dir, job_id))
 
+        LOGGER.debug(f'_mask_raster {job_id} at {working_dir} {target_beneficiaries_path}')
         mask_downstream_norm_bene_task = task_graph.add_task(
             func=_mask_raster,
             args=(
@@ -825,6 +827,7 @@ def main(watershed_ids=None):
         target=job_complete_worker,
         args=(
             completed_work_queue, work_db_path, args.clean_result, 6))
+    job_complete_worker_thread.daemon = True
     job_complete_worker_thread.start()
 
     # contains work queues for regular and normalized beneficiaries
@@ -846,6 +849,7 @@ def main(watershed_ids=None):
                 args=(
                     stitch_work_queue, target_stitch_raster_path,
                     completed_work_queue, args.clean_result))
+            stitch_worker_process.deamon = True
             stitch_worker_process.start()
             stitch_worker_process_list.append(stitch_worker_process)
 
@@ -854,95 +858,107 @@ def main(watershed_ids=None):
     watershed_root_dir = os.path.join(
         watershed_download_dir, 'watersheds_globe_HydroSHEDS_15arcseconds')
 
+    watershed_worker_process_list = []
+    for _ in range(multiprocessing.cpu_count()):
+        watershed_worker_process = multiprocessing.Process(
+            target=general_worker,
+            args=(watershed_work_queue,))
+        watershed_worker_process.daemon = True
+        watershed_worker_process.start()
+        watershed_worker_process_list.append(watershed_worker_process)
+
+    LOGGER.info('building watershed fid list')
+
+    # TODO: for immediate mode
     if watershed_ids:
+        valid_watershed_basenames = set()
+        valid_watersheds = set()
         for watershed_id in watershed_ids:
             watershed_basename, watershed_fid = watershed_id.split(',')
-            watershed_path = os.path.join(
-                watershed_root_dir, f'{watershed_basename}.shp')
+            valid_watershed_basenames.add(watershed_basename)
+            valid_watersheds.add((watershed_basename, int(watershed_fid)))
+        LOGGER.debug(
+            f'valid watershed basenames: {valid_watershed_basenames} '
+            f'valid valid_watersheds: {valid_watersheds} ')
 
-            job_id = f'''{os.path.basename(
-                os.path.splitext(watershed_path)[0])}_{watershed_fid}'''
+    for watershed_path in glob.glob(
+            os.path.join(watershed_root_dir, '*.shp')):
+        LOGGER.debug(f'processing {watershed_path}')
+        watershed_fid_index = collections.defaultdict(
+            lambda: [list(), list()])
+        watershed_basename = os.path.splitext(
+            os.path.basename(watershed_path))[0]
+        if watershed_ids:
+            if watershed_basename not in valid_watershed_basenames:
+                continue
+        watershed_vector = gdal.OpenEx(watershed_path, gdal.OF_VECTOR)
+        watershed_layer = watershed_vector.GetLayer()
+        for watershed_feature in watershed_layer:
+            fid = watershed_feature.GetFID()
+
+            if watershed_ids:
+                # skip on immediate mode
+                if (watershed_basename, fid) not in valid_watersheds:
+                    continue
+            LOGGER.info(f'scheduling {(watershed_basename, fid)}')
+            watershed_geom = watershed_feature.GetGeometryRef()
+            watershed_centroid = watershed_geom.Centroid()
+            epsg = get_utm_zone(
+                watershed_centroid.GetX(), watershed_centroid.GetY())
+            if watershed_geom.Area() > 1 or watershed_ids:
+                # one degree grids or immediates get special treatment
+                job_id = (f'{watershed_basename}_{fid}_{epsg}', epsg)
+                watershed_fid_index[job_id][0] = [fid]
+            else:
+                # clamp into 5 degree square
+                x, y = [
+                    int(v//5)*5 for v in get_centroid(vector_path, fid)]
+                job_id = (f'{watershed_basename}_{(x, y)}_{epsg}', epsg)
+                watershed_fid_index[job_id][0].append(fid)
+            watershed_envelope = watershed_geom.GetEnvelope()
+            watershed_bb = [watershed_envelope[i] for i in [0, 2, 1, 3]]
+            watershed_fid_index[job_id][1].append(watershed_bb)
+
+        watershed_geom = None
+        watershed_feature = None
+        watershed_layer = None
+        watershed_vector = None
+
+        LOGGER.info(f'scheduling {watershed_path}')
+        for (job_id, epsg), (fid_list, watershed_envelope_list) in \
+                watershed_fid_index.items():
             if job_id in completed_job_set:
                 continue
-            workspace_dir = os.path.join(WATERSHED_WORKSPACE_DIR, job_id)
-            os.makedirs(workspace_dir, exist_ok=True)
-            WATERSHEDS_TO_PROCESS_COUNT += 1
-            process_watershed(
-                job_id, watershed_path, int(watershed_fid), dem_vrt_path,
-                hab_mask_raster_path,
-                [pop_raster_path_map[raster_id]
-                 for raster_id in POPULATION_RASTER_URL_MAP.keys()],
-                [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
-                     watershed_fid}.tif''')
-                 for raster_id in POPULATION_RASTER_URL_MAP.keys()],
-                [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
-                     watershed_fid}_normalized.tif''')
-                 for raster_id in POPULATION_RASTER_URL_MAP.keys()],
-                [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
-                     watershed_fid}_hab_normalized.tif''')
-                 for raster_id in POPULATION_RASTER_URL_MAP.keys()],
-                stitch_work_queue_list,
-                create_flow_accum_raster=True)
-    else:
-        watershed_worker_process_list = []
-        for _ in range(multiprocessing.cpu_count()):
-            watershed_worker_process = multiprocessing.Process(
-                target=general_worker,
-                args=(watershed_work_queue,))
-            watershed_worker_process.start()
-            watershed_worker_process_list.append(watershed_worker_process)
 
-        LOGGER.info('building watershed fid list')
-        watershed_fid_list = []
-        watershed_path_list = []
-        for watershed_path in glob.glob(
-                os.path.join(watershed_root_dir, '*.shp')):
-            watershed_path_list.append(watershed_path)
-            watershed_vector = gdal.OpenEx(watershed_path, gdal.OF_VECTOR)
-            watershed_layer = watershed_vector.GetLayer()
-            watershed_fid_list.extend([
-                (watershed_feature.GetGeometryRef().Area(),
-                 watershed_feature.GetFID(), len(watershed_path_list)-1)
-                for watershed_feature in watershed_layer])
-            watershed_layer = None
-            watershed_vector = None
-        LOGGER.info('starting scheduling')
-        for watershed_area, watershed_fid, watershed_path_index in sorted(
-                watershed_fid_list, reverse=True):
-            watershed_path = watershed_path_list[watershed_path_index]
-            watershed_basename = os.path.splitext(
-                os.path.basename(watershed_path))[0]
-            job_id = f'''{os.path.basename(
-                os.path.splitext(watershed_path)[0])}_{watershed_fid}'''
-            if job_id in completed_job_set:
-                continue
+            job_bb = pygeoprocessing.merge_bounding_box_list(
+                watershed_envelope_list, 'union')
 
             workspace_dir = os.path.join(WATERSHED_WORKSPACE_DIR, job_id)
             watershed_work_queue.put((
                 process_watershed,
-                (job_id, watershed_path, watershed_fid, dem_vrt_path,
+                (job_id, watershed_path, fid_list, epsg, job_bb, dem_vrt_path,
                  hab_mask_raster_path,
                  [pop_raster_path_map[raster_id]
                   for raster_id in POPULATION_RASTER_URL_MAP.keys()],
                  [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
-                     watershed_fid}.tif''')
+                     job_id}.tif''')
                   for raster_id in POPULATION_RASTER_URL_MAP.keys()],
                  [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
-                     watershed_fid}_normalized.tif''')
+                     job_id}_normalized.tif''')
                   for raster_id in POPULATION_RASTER_URL_MAP.keys()],
                  [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{watershed_basename}_{
-                     watershed_fid}_hab_normalized.tif''')
+                     job_id}_hab_normalized.tif''')
                   for raster_id in POPULATION_RASTER_URL_MAP.keys()],
                  stitch_work_queue_list)))
             WATERSHEDS_TO_PROCESS_COUNT += 1
             if WATERSHEDS_TO_PROCESS_COUNT == args.max_to_run:
                 break
 
-        LOGGER.debug('waiting for watershed workers to be done')
-        watershed_work_queue.put(None)
-        for watershed_worker in watershed_worker_process_list:
-            watershed_worker.join()
-        LOGGER.debug('watershed workers are done')
+    LOGGER.debug('waiting for watershed workers to be done')
+    watershed_work_queue.put(None)
+    for watershed_worker in watershed_worker_process_list:
+        watershed_worker.join()
+    LOGGER.debug('watershed workers are done')
 
     LOGGER.debug('signal stitch workers to be done')
     for stitch_queue in [
@@ -963,6 +979,7 @@ def main(watershed_ids=None):
             hash_thread = threading.Thread(
                 target=hash_overview_compress_raster,
                 args=(raster_path,))
+            hash_thread.daemon = True
             hash_thread.start()
             hash_thread_list.append(hash_thread)
 
@@ -987,6 +1004,25 @@ def hash_overview_compress_raster(raster_path):
     compressed_raster_band = None
     compressed_raster = None
     ecoshard.hash_file(compressed_path, rename=True)
+
+
+def get_centroid(vector_path, fid):
+    """Return centroid x/y coordinate of given FID in the vector."""
+    vector = gdal.OpenEx(vector_path, gdal.OF_VECTOR)
+    layer = vector.GetLayer()
+    feature = layer.GetFeature(fid)
+    centroid = feature.GetGeometryRef().Centroid()
+    feature = None
+    layer = None
+    vector = None
+    return centroid.GetX(), centroid.GetY()
+
+
+def get_utm_zone(x, y):
+    utm_code = (math.floor((x + 180)/6) % 60) + 1
+    lat_code = 6 if y > 0 else 7
+    epsg_code = int('32%d%02d' % (lat_code, utm_code))
+    return epsg_code
 
 
 if __name__ == '__main__':
