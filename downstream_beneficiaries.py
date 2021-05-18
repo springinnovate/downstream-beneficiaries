@@ -250,6 +250,26 @@ def normalize_by_raster_sum(
         target_raster_path, gdal.GDT_Float32, base_nodata)
 
 
+def div_rasters(
+        numerator_raster_path, denominator_raster_path, target_raster_path):
+    """Normalize base by raster sum."""
+    numerator_nodata = pygeoprocessing.get_raster_info(
+        numerator_raster_path)['nodata'][0]
+
+    def _div_op(numerator_array, denominator_array):
+        result = numpy.empty(numerator_array.shape, dtype=numpy.float64)
+        result[:] = numerator_nodata
+        valid_mask = (
+            ~numpy.isclose(numerator_array, numerator_nodata) &
+            (denominator_array > 0))
+        result[valid_mask] = numerator_array[valid_mask]/denominator_array[valid_mask]
+        return result
+
+    pygeoprocessing.raster_calculator(
+        [(numerator_raster_path, 1), (denominator_raster_path, 1)], _div_op,
+        target_raster_path, gdal.GDT_Float64, numerator_nodata)
+
+
 def _sum_raster(raster_path):
     """Return the sum of the raster."""
     running_sum = 0
@@ -558,9 +578,9 @@ def process_watershed(
 
         # TODO: divide the population by upstream area
         pop_div_fa_raster_path = os.path.join(
-            working_dir, f'{job_id}_pop_div_fa.tif')
+            working_dir, f'pop_div_fa_{os.path.basename(os.path.splitext(target_hab_upstream_area_normalized_path)[0])}.tif')
         div_pop_by_fa_task = task_graph.add_task(
-            func=_div_op,
+            func=div_rasters,
             args=(
                 aligned_pop_raster_path, flow_accum_mfd_raster_path,
                 pop_div_fa_raster_path),
@@ -837,6 +857,7 @@ def main(watershed_ids=None):
         target_path_list=[hab_mask_raster_path],
         task_name=f'download {HAB_MASK_URL}')
 
+    n_stitch_rasters = 0
     pop_raster_path_map = {}
     stitch_raster_path_map = {}
     for pop_id, pop_url in POPULATION_RASTER_URL_MAP.items():
@@ -856,6 +877,8 @@ def main(watershed_ids=None):
             os.path.join(WORKSPACE_DIR, f'downstream_bene_{pop_id}_upstream_area_normalized.tif'),
             os.path.join(WORKSPACE_DIR, f'downstream_bene_{pop_id}_hab_upstream_area_normalized.tif'),
             os.path.join(WORKSPACE_DIR, f'flow_accum_{pop_id}.tif')]
+
+        n_stitch_rasters += len(stitch_raster_path_map[pop_id])
 
         for stitch_path in stitch_raster_path_map[pop_id]:
             if not os.path.exists(stitch_path):
@@ -895,7 +918,8 @@ def main(watershed_ids=None):
     job_complete_worker_thread = threading.Thread(
         target=job_complete_worker,
         args=(
-            completed_work_queue, work_db_path, args.clean_result, 6))
+            completed_work_queue, work_db_path, args.clean_result,
+            n_stitch_rasters))
     job_complete_worker_thread.daemon = True
     job_complete_worker_thread.start()
 
