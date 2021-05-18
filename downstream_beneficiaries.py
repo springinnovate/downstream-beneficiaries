@@ -95,6 +95,7 @@ POPULATION_RASTER_URL_MAP = {
     '2017': 'https://storage.googleapis.com/ecoshard-root/population/lspop2017_md5_2e8da6824e4d67f8ea321ba4b585a3a5.tif',
     'floodplain': 'https://storage.googleapis.com/ecoshard-root/population/floodplains_masked_pop_30s_md5_c027686bb9a9a36bdababbe8af35d696.tif',
     'ssp3': 'https://storage.googleapis.com/ecoshard-root/population/lspop_ssp3_md5_0455273be50a249ca4af001ffa2c57e9.tif',
+    #'canonical': 'https://storage.googleapis.com/ecoshard-root/population/canonicalpop.tif'
     }
 
 HAB_MASK_URL = 'https://storage.googleapis.com/critical-natural-capital-ecoshards/habmasks/masked_all_nathab_esa2015_md5_50debbf5fba6dbdaabfccbc39a9b1670.tif'
@@ -444,39 +445,39 @@ def process_watershed(
         target_path_list=[filled_dem_raster_path],
         task_name=f'fill dem pits to {filled_dem_raster_path}')
 
-    LOGGER.debug(f'flow_dir_mfd {job_id} at {working_dir}')
-    flow_dir_mfd_raster_path = os.path.join(
-        working_dir, f'{job_id}_flow_dir_mfd.tif')
-    flow_dir_mfd_task = task_graph.add_task(
-        func=pygeoprocessing.routing.flow_dir_mfd,
+    LOGGER.debug(f'flow_dir_d8 {job_id} at {working_dir}')
+    flow_dir_d8_raster_path = os.path.join(
+        working_dir, f'{job_id}_flow_dir_d8.tif')
+    flow_dir_d8_task = task_graph.add_task(
+        func=pygeoprocessing.routing.flow_dir_d8,
         args=(
-            (filled_dem_raster_path, 1), flow_dir_mfd_raster_path),
+            (filled_dem_raster_path, 1), flow_dir_d8_raster_path),
         kwargs={'working_dir': working_dir},
         dependent_task_list=[fill_pits_task],
-        target_path_list=[flow_dir_mfd_raster_path],
-        task_name=f'calc flow dir for {flow_dir_mfd_raster_path}')
+        target_path_list=[flow_dir_d8_raster_path],
+        task_name=f'calc flow dir for {flow_dir_d8_raster_path}')
 
     LOGGER.debug(f'create_flow_accum_raster {job_id} at {working_dir}')
-    flow_accum_mfd_raster_path = os.path.join(
-        working_dir, f'{job_id}_flow_accum_mfd.tif')
-    flow_accum_mfd_task = task_graph.add_task(
-        func=pygeoprocessing.routing.flow_accumulation_mfd,
+    flow_accum_d8_raster_path = os.path.join(
+        working_dir, f'{job_id}_flow_accum_d8.tif')
+    flow_accum_d8_task = task_graph.add_task(
+        func=pygeoprocessing.routing.flow_accumulation_d8,
         args=(
-            (flow_dir_mfd_raster_path, 1), flow_accum_mfd_raster_path),
-        dependent_task_list=[flow_dir_mfd_task],
-        target_path_list=[flow_accum_mfd_raster_path],
-        task_name=f'calc flow accum for {flow_accum_mfd_raster_path}')
-    flow_accum_mfd_task.join()
+            (flow_dir_d8_raster_path, 1), flow_accum_d8_raster_path),
+        dependent_task_list=[flow_dir_d8_task],
+        target_path_list=[flow_accum_d8_raster_path],
+        task_name=f'calc flow accum for {flow_accum_d8_raster_path}')
+    flow_accum_d8_task.join()
     target_stitch_work_queue_list[0][5].put(
-        (flow_accum_mfd_raster_path, working_dir, job_id))
+        (flow_accum_d8_raster_path, working_dir, job_id))
 
     outlet_vector_path = os.path.join(
         working_dir, f'{job_id}_outlet_vector.gpkg')
     LOGGER.debug(f'detect_outlets {job_id} at {working_dir}')
     detect_outlets_task = task_graph.add_task(
         func=pygeoprocessing.routing.detect_outlets,
-        args=((flow_dir_mfd_raster_path, 1), 'mfd', outlet_vector_path),
-        dependent_task_list=[flow_dir_mfd_task],
+        args=((flow_dir_d8_raster_path, 1), 'd8', outlet_vector_path),
+        dependent_task_list=[flow_dir_d8_task],
         target_path_list=[outlet_vector_path],
         task_name=f'detect outlets {outlet_vector_path}')
 
@@ -486,7 +487,7 @@ def process_watershed(
     create_outlet_raster_task = task_graph.add_task(
         func=_create_outlet_raster,
         args=(
-            outlet_vector_path, flow_dir_mfd_raster_path, outlet_raster_path),
+            outlet_vector_path, flow_dir_d8_raster_path, outlet_raster_path),
         dependent_task_list=[detect_outlets_task],
         target_path_list=[outlet_raster_path],
         task_name=f'create outlet raster {outlet_raster_path}')
@@ -523,20 +524,32 @@ def process_watershed(
             target_path_list=[aligned_pop_raster_path],
             task_name=f'align {aligned_pop_raster_path}')
 
-        LOGGER.debug(f'distance_to_channel_mfd {job_id} at {working_dir} {target_beneficiaries_path}')
+        LOGGER.debug(f'distance_to_channel_d8 {job_id} at {working_dir} {target_beneficiaries_path}')
         downstream_bene_task = task_graph.add_task(
-            func=pygeoprocessing.routing.distance_to_channel_mfd,
+            func=pygeoprocessing.routing.distance_to_channel_d8,
             args=(
-                (flow_dir_mfd_raster_path, 1), (outlet_raster_path, 1),
+                (flow_dir_d8_raster_path, 1), (outlet_raster_path, 1),
                 target_beneficiaries_path),
             kwargs={
                 'weight_raster_path_band': (aligned_pop_raster_path, 1)},
             dependent_task_list=[
-                pop_warp_task, create_outlet_raster_task, flow_dir_mfd_task],
+                pop_warp_task, create_outlet_raster_task, flow_dir_d8_task],
             target_path_list=[target_beneficiaries_path],
             task_name=(
                 'calc downstream beneficiaries for '
                 f'{target_beneficiaries_path}'))
+
+        regular_ds_raster_path = os.path.join(
+            working_dir, f'regular_ds_{os.path.basename(os.path.splitext(target_hab_upstream_area_normalized_path)[0])}.tif')
+        downstream_bene_task = task_graph.add_task(
+            func=pygeoprocessing.routing.distance_to_channel_d8,
+            args=(
+                (flow_dir_d8_raster_path, 1), (outlet_raster_path, 1),
+                regular_ds_raster_path),
+            dependent_task_list=[
+                pop_warp_task, create_outlet_raster_task, flow_dir_d8_task],
+            target_path_list=[regular_ds_raster_path],
+            task_name='calc regualr ds path')
 
         downstream_bene_task.join()
         stitch_queue_tuple[0].put(
@@ -577,33 +590,33 @@ def process_watershed(
             (target_hab_normalized_beneficiaries_path, working_dir, job_id))
 
         # TODO: divide the population by upstream area
-        pop_div_fa_raster_path = os.path.join(
-            working_dir, f'pop_div_fa_{os.path.basename(os.path.splitext(target_hab_upstream_area_normalized_path)[0])}.tif')
+        # pop_div_fa_raster_path = os.path.join(
+        #     working_dir, f'pop_div_fa_{os.path.basename(os.path.splitext(target_hab_upstream_area_normalized_path)[0])}.tif')
         div_pop_by_fa_task = task_graph.add_task(
             func=div_rasters,
             args=(
-                aligned_pop_raster_path, flow_accum_mfd_raster_path,
-                pop_div_fa_raster_path),
-            dependent_task_list=[flow_accum_mfd_task, align_task],
-            target_path_list=[pop_div_fa_raster_path],
-            task_name=f'divide pop by fa to make {pop_div_fa_raster_path}')
-
-        # TODO: calculate target_upstream_area_normalized_path based on that
-        downstream_bene_by_fa_task = task_graph.add_task(
-            func=pygeoprocessing.routing.distance_to_channel_mfd,
-            args=(
-                (flow_dir_mfd_raster_path, 1), (outlet_raster_path, 1),
+                target_beneficiaries_path, flow_accum_d8_raster_path,
                 target_upstream_area_normalized_path),
-            kwargs={
-                'weight_raster_path_band': (pop_div_fa_raster_path, 1)},
-            dependent_task_list=[
-                pop_warp_task, create_outlet_raster_task, flow_dir_mfd_task,
-                div_pop_by_fa_task],
+            dependent_task_list=[downstream_bene_task, flow_accum_d8_task],
             target_path_list=[target_upstream_area_normalized_path],
-            task_name=(
-                'calc downstream beneficiaries for '
-                f'{target_upstream_area_normalized_path}'))
-        downstream_bene_by_fa_task.join()
+            task_name=f'divide pop by fa to make {target_upstream_area_normalized_path}')
+        div_pop_by_fa_task.join()
+        # # TODO: calculate target_upstream_area_normalized_path based on that
+        # downstream_bene_by_fa_task = task_graph.add_task(
+        #     func=pygeoprocessing.routing.distance_to_channel_d8,
+        #     args=(
+        #         (flow_dir_d8_raster_path, 1), (outlet_raster_path, 1),
+        #         target_upstream_area_normalized_path),
+        #     kwargs={
+        #         'weight_raster_path_band': (pop_div_fa_raster_path, 1)},
+        #     dependent_task_list=[
+        #         pop_warp_task, create_outlet_raster_task, flow_dir_d8_task,
+        #         div_pop_by_fa_task],
+        #     target_path_list=[target_upstream_area_normalized_path],
+        #     task_name=(
+        #         'calc downstream beneficiaries for '
+        #         f'{target_upstream_area_normalized_path}'))
+        #downstream_bene_by_fa_task.join()
         stitch_queue_tuple[3].put(
             (target_upstream_area_normalized_path, working_dir, job_id))
 
@@ -615,7 +628,7 @@ def process_watershed(
                 target_upstream_area_normalized_path,
                 warped_habitat_raster_path,
                 target_hab_upstream_area_normalized_path),
-            dependent_task_list=[downstream_bene_by_fa_task, align_task],
+            dependent_task_list=[div_pop_by_fa_task, align_task],
             target_path_list=[target_hab_upstream_area_normalized_path],
             task_name=f'mask {target_hab_upstream_area_normalized_path}')
         mask_downstream_norm_bene_task.join()
