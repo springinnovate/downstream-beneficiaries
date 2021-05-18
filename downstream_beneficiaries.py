@@ -916,6 +916,9 @@ def main(watershed_ids=None):
                 target_band.SetNoDataValue(-9999)
                 target_raster = None
 
+    # reduce by len of pop - 1 to accoutn for us not doing flow accumulation
+    # for every pop value
+    n_stitch_rasters -= len(stitch_raster_path_map) - 1
     LOGGER.info('wait for downloads to conclude')
     task_graph.join()
     task_graph.close()
