@@ -562,17 +562,17 @@ def process_watershed(
             target_path_list=[aligned_pop_raster_path],
             task_name=f'align {aligned_pop_raster_path}')
 
-        sqrt_beneficiaries_raster_path = os.path.join(
-            working_dir,
-            f'sqrt_{os.path.basename(target_beneficiaries_path)}')
-        sqrt_bene_task = task_graph.add_task(
-            func=pygeoprocessing.raster_calculator,
-            args=(
-                [(aligned_pop_raster_path, 1), (-1, 'raw')], _sqrt_op,
-                sqrt_beneficiaries_raster_path, gdal.GDT_Float32, -1),
-            dependent_task_list=[pop_warp_task],
-            target_path_list=[sqrt_beneficiaries_raster_path],
-            task_name=f'sqrt bene for {sqrt_beneficiaries_raster_path}')
+        # sqrt_beneficiaries_raster_path = os.path.join(
+        #     working_dir,
+        #     f'sqrt_{os.path.basename(target_beneficiaries_path)}')
+        # sqrt_bene_task = task_graph.add_task(
+        #     func=pygeoprocessing.raster_calculator,
+        #     args=(
+        #         [(aligned_pop_raster_path, 1), (-1, 'raw')], _sqrt_op,
+        #         sqrt_beneficiaries_raster_path, gdal.GDT_Float32, -1),
+        #     dependent_task_list=[pop_warp_task],
+        #     target_path_list=[sqrt_beneficiaries_raster_path],
+        #     task_name=f'sqrt bene for {sqrt_beneficiaries_raster_path}')
 
         LOGGER.debug(
             f'distance_to_channel_mfd {job_id} at {working_dir} {target_beneficiaries_path}')
@@ -582,10 +582,10 @@ def process_watershed(
                 (flow_dir_mfd_raster_path, 1), (outlet_raster_path, 1),
                 target_beneficiaries_path),
             kwargs={
-                'weight_raster_path_band': (sqrt_beneficiaries_raster_path, 1),
+                'weight_raster_path_band': (aligned_pop_raster_path, 1),
                 'decay_raster_path_band': (stream_decay_raster_path, 1)},
             dependent_task_list=[
-                sqrt_bene_task, create_outlet_raster_task, flow_dir_mfd_task,
+                pop_warp_task, create_outlet_raster_task, flow_dir_mfd_task,
                 stream_decay_task],
             target_path_list=[target_beneficiaries_path],
             task_name=(
