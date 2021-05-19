@@ -37,6 +37,8 @@ LOGGER = logging.getLogger(__name__)
 logging.getLogger('taskgraph').setLevel(logging.WARN)
 logging.getLogger('pygeoprocessing').setLevel(logging.WARN)
 
+FA_THRESHOLD = 10000
+STREAM_DECAY_RATE = .9999
 
 # Backport of https://github.com/python/cpython/pull/4819
 # Improvements to the Manager / proxied shared values code
@@ -64,7 +66,8 @@ def apply_manager_autopatch():
     if "manager_owned" in signature(managers.AutoProxy).parameters:
         return
 
-    LOGGER.debug("Patching multiprocessing.managers.AutoProxy to add manager_owned")
+    LOGGER.debug(
+        "Patching multiprocessing.managers.AutoProxy to add manager_owned")
     managers.AutoProxy = AutoProxy
 
     # re-register any types already registered to SyncManager without a custom
@@ -91,11 +94,11 @@ DEM_ZIP_URL = 'https://storage.googleapis.com/global-invest-sdr-data/global_dem_
 WATERSHED_VECTOR_ZIP_URL = 'https://storage.googleapis.com/ipbes-ndr-ecoshard-data/watersheds_globe_HydroSHEDS_15arcseconds_blake2b_14ac9c77d2076d51b0258fd94d9378d4.zip'
 
 POPULATION_RASTER_URL_MAP = {
-    '2000': 'https://storage.googleapis.com/ecoshard-root/population/lspop2000_md5_79a872e3480c998a4a8bfa28feee228c.tif',
+    #'2000': 'https://storage.googleapis.com/ecoshard-root/population/lspop2000_md5_79a872e3480c998a4a8bfa28feee228c.tif',
     '2017': 'https://storage.googleapis.com/ecoshard-root/population/lspop2017_md5_2e8da6824e4d67f8ea321ba4b585a3a5.tif',
-    'floodplain': 'https://storage.googleapis.com/ecoshard-root/population/floodplains_masked_pop_30s_md5_c027686bb9a9a36bdababbe8af35d696.tif',
-    'ssp3': 'https://storage.googleapis.com/ecoshard-root/population/lspop_ssp3_md5_0455273be50a249ca4af001ffa2c57e9.tif',
-    #'canonical': 'https://storage.googleapis.com/ecoshard-root/population/canonicalpop.tif'
+    #'floodplain': 'https://storage.googleapis.com/ecoshard-root/population/floodplains_masked_pop_30s_md5_c027686bb9a9a36bdababbe8af35d696.tif',
+    #'ssp3': 'https://storage.googleapis.com/ecoshard-root/population/lspop_ssp3_md5_0455273be50a249ca4af001ffa2c57e9.tif',
+    # 'canonical': 'https://storage.googleapis.com/ecoshard-root/population/canonicalpop.tif'
     }
 
 HAB_MASK_URL = 'https://storage.googleapis.com/critical-natural-capital-ecoshards/habmasks/masked_all_nathab_esa2015_md5_50debbf5fba6dbdaabfccbc39a9b1670.tif'
@@ -106,6 +109,38 @@ WATERSHED_WORKSPACE_DIR = os.path.join(WORKSPACE_DIR, 'watershed_workspace')
 for dir_path in [WORKSPACE_DIR, WATERSHED_WORKSPACE_DIR]:
     os.makedirs(dir_path, exist_ok=True)
 N_TO_STITCH = 100
+
+
+def _calculate_stream_layer(
+        flow_accum_raster_path, flow_dir_mfd_raster_path, fa_threshold,
+        outlet_raster_path, scale_value, target_stream_raster_path):
+    """Calculate a stream layer and merge into outlet raster."""
+    nodata = -1
+
+    directory = os.path.dirname(target_stream_raster_path)
+    stream_raster_path = os.path.join(
+        directory, f'stream_{os.path.basename(target_stream_raster_path)}')
+
+    pygeoprocessing.routing.extract_streams_mfd(
+        (flow_accum_raster_path, 1), (flow_dir_mfd_raster_path, 1),
+        fa_threshold, stream_raster_path)
+
+    stream_nodata = pygeoprocessing.get_raster_info(
+        stream_raster_path)['nodata'][0]
+
+    def scale_and_merge(stream_array, outlet):
+        result = numpy.full(stream_array.shape, nodata, dtype=numpy.float32)
+        valid_mask = ~numpy.isclose(stream_array, stream_nodata)
+        result[valid_mask] = 1
+        result[valid_mask] = numpy.where(
+            stream_array[valid_mask] > 0, scale_value, 1.0)
+        result[outlet == 1] = scale_value
+        return result
+
+    pygeoprocessing.raster_calculator(
+        [(stream_raster_path, 1), (outlet_raster_path, 1)],
+        scale_and_merge, target_stream_raster_path, gdal.GDT_Float32,
+        nodata)
 
 
 def _warp_and_wgs84_area_scale(
@@ -238,7 +273,6 @@ def normalize_by_raster_sum(
         valid_mask = ~numpy.isclose(data_block, base_nodata)
         base_sum += numpy.sum(data_block[valid_mask])
 
-
     def _div_by_sum(data_array):
         result = numpy.copy(data_array)
         valid_mask = ~numpy.isclose(data_array, base_nodata)
@@ -323,8 +357,6 @@ def process_watershed(
         target_beneficiaries_path_list,
         target_normalized_beneficiaries_path_list,
         target_hab_normalized_beneficiaries_path_list,
-        target_upstream_area_normalized_path_list,
-        target_hab_upstream_area_normalized_path_list,
         target_flow_accum_path_list,
         target_stitch_work_queue_list):
     """Calculate downstream beneficiaries for this watershed.
@@ -349,10 +381,6 @@ def process_watershed(
         target_hab_normalized_beneficiaries_path_list (list): list of target
             hab normalized downstream beneficiary rasters, parallel with other
             lists.
-        target_upstream_area_normalized_path_list (list): list of upstream
-            area normalized pop flow dir accum
-        target_hab_upstream_area_normalized_path_list (list): list of upstream
-            area normalized pop that is masked by hab.
         target_flow_accum_path_list (list): list of flow accumulation rasters
             to create
         target_stitch_work_queue_list (list): list of work queue tuples to
@@ -457,20 +485,6 @@ def process_watershed(
         target_path_list=[flow_dir_mfd_raster_path],
         task_name=f'calc flow dir for {flow_dir_mfd_raster_path}')
 
-    LOGGER.debug(f'create_flow_accum_raster {job_id} at {working_dir}')
-    flow_accum_mfd_raster_path = os.path.join(
-        working_dir, f'{job_id}_flow_accum_mfd.tif')
-    flow_accum_mfd_task = task_graph.add_task(
-        func=pygeoprocessing.routing.flow_accumulation_mfd,
-        args=(
-            (flow_dir_mfd_raster_path, 1), flow_accum_mfd_raster_path),
-        dependent_task_list=[flow_dir_mfd_task],
-        target_path_list=[flow_accum_mfd_raster_path],
-        task_name=f'calc flow accum for {flow_accum_mfd_raster_path}')
-    flow_accum_mfd_task.join()
-    target_stitch_work_queue_list[0][5].put(
-        (flow_accum_mfd_raster_path, working_dir, job_id))
-
     outlet_vector_path = os.path.join(
         working_dir, f'{job_id}_outlet_vector.gpkg')
     LOGGER.debug(f'detect_outlets {job_id} at {working_dir}')
@@ -492,17 +506,41 @@ def process_watershed(
         target_path_list=[outlet_raster_path],
         task_name=f'create outlet raster {outlet_raster_path}')
 
+    LOGGER.debug(f'create_flow_accum_raster {job_id} at {working_dir}')
+    flow_accum_mfd_raster_path = os.path.join(
+        working_dir, f'{job_id}_flow_accum_mfd.tif')
+    flow_accum_mfd_task = task_graph.add_task(
+        func=pygeoprocessing.routing.flow_accumulation_mfd,
+        args=(
+            (flow_dir_mfd_raster_path, 1), flow_accum_mfd_raster_path),
+        dependent_task_list=[flow_dir_mfd_task],
+        target_path_list=[flow_accum_mfd_raster_path],
+        task_name=f'calc flow accum for {flow_accum_mfd_raster_path}')
+    flow_accum_mfd_task.join()
+    target_stitch_work_queue_list[0][3].put(
+        (flow_accum_mfd_raster_path, working_dir, job_id))
+
+    # create stream layer w/ threshold or outlet
+    stream_decay_raster_path = os.path.join(
+        working_dir, f'stream_decay_{job_id}_{STREAM_DECAY_RATE}.tif')
+    stream_decay_task = task_graph.add_task(
+        func=_calculate_stream_layer,
+        args=(
+            flow_accum_mfd_raster_path,
+            flow_dir_mfd_raster_path,
+            FA_THRESHOLD, outlet_raster_path,
+            STREAM_DECAY_RATE, stream_decay_raster_path),
+        dependent_task_list=[flow_accum_mfd_task, flow_dir_mfd_task],
+        target_path_list=[stream_decay_raster_path],
+        task_name=f'calc stream layer {stream_decay_raster_path}')
+
     for (pop_raster_path, target_beneficiaries_path,
          target_normalized_beneficiaries_path,
          target_hab_normalized_beneficiaries_path,
-         target_upstream_area_normalized_path,
-         target_hab_upstream_area_normalized_path,
          stitch_queue_tuple) in zip(
             pop_raster_path_list, target_beneficiaries_path_list,
             target_normalized_beneficiaries_path_list,
             target_hab_normalized_beneficiaries_path_list,
-            target_upstream_area_normalized_path_list,
-            target_hab_upstream_area_normalized_path_list,
             target_stitch_work_queue_list):
 
         LOGGER.debug(f'processing {target_beneficiaries_path} and normalized')
@@ -524,32 +562,35 @@ def process_watershed(
             target_path_list=[aligned_pop_raster_path],
             task_name=f'align {aligned_pop_raster_path}')
 
-        LOGGER.debug(f'distance_to_channel_mfd {job_id} at {working_dir} {target_beneficiaries_path}')
+        sqrt_beneficiaries_raster_path = os.path.join(
+            working_dir,
+            f'sqrt_{os.path.basename(target_beneficiaries_path)}')
+        sqrt_bene_task = task_graph.add_task(
+            func=pygeoprocessing.raster_calculator,
+            args=(
+                [(aligned_pop_raster_path, 1), (-1, 'raw')], _sqrt_op,
+                sqrt_beneficiaries_raster_path, gdal.GDT_Float32, -1),
+            dependent_task_list=[pop_warp_task],
+            target_path_list=[sqrt_beneficiaries_raster_path],
+            task_name=f'sqrt bene for {sqrt_beneficiaries_raster_path}')
+
+        LOGGER.debug(
+            f'distance_to_channel_mfd {job_id} at {working_dir} {target_beneficiaries_path}')
         downstream_bene_task = task_graph.add_task(
             func=pygeoprocessing.routing.distance_to_channel_mfd,
             args=(
                 (flow_dir_mfd_raster_path, 1), (outlet_raster_path, 1),
                 target_beneficiaries_path),
             kwargs={
-                'weight_raster_path_band': (aligned_pop_raster_path, 1)},
+                'weight_raster_path_band': (sqrt_beneficiaries_raster_path, 1),
+                'decay_raster_path_band': (stream_decay_raster_path, 1)},
             dependent_task_list=[
-                pop_warp_task, create_outlet_raster_task, flow_dir_mfd_task],
+                sqrt_bene_task, create_outlet_raster_task, flow_dir_mfd_task,
+                stream_decay_task],
             target_path_list=[target_beneficiaries_path],
             task_name=(
                 'calc downstream beneficiaries for '
                 f'{target_beneficiaries_path}'))
-
-        regular_ds_raster_path = os.path.join(
-            working_dir, f'regular_ds_{os.path.basename(os.path.splitext(target_hab_upstream_area_normalized_path)[0])}.tif')
-        downstream_bene_task = task_graph.add_task(
-            func=pygeoprocessing.routing.distance_to_channel_mfd,
-            args=(
-                (flow_dir_mfd_raster_path, 1), (outlet_raster_path, 1),
-                regular_ds_raster_path),
-            dependent_task_list=[
-                pop_warp_task, create_outlet_raster_task, flow_dir_mfd_task],
-            target_path_list=[regular_ds_raster_path],
-            task_name='calc regualr ds path')
 
         downstream_bene_task.join()
         stitch_queue_tuple[0].put(
@@ -588,52 +629,6 @@ def process_watershed(
         mask_downstream_norm_bene_task.join()
         stitch_queue_tuple[2].put(
             (target_hab_normalized_beneficiaries_path, working_dir, job_id))
-
-        # TODO: divide the population by upstream area
-        # pop_div_fa_raster_path = os.path.join(
-        #     working_dir, f'pop_div_fa_{os.path.basename(os.path.splitext(target_hab_upstream_area_normalized_path)[0])}.tif')
-        div_pop_by_fa_task = task_graph.add_task(
-            func=div_rasters,
-            args=(
-                target_beneficiaries_path, flow_accum_mfd_raster_path,
-                target_upstream_area_normalized_path),
-            dependent_task_list=[downstream_bene_task, flow_accum_mfd_task],
-            target_path_list=[target_upstream_area_normalized_path],
-            task_name=f'divide pop by fa to make {target_upstream_area_normalized_path}')
-        div_pop_by_fa_task.join()
-        # # TODO: calculate target_upstream_area_normalized_path based on that
-        # downstream_bene_by_fa_task = task_graph.add_task(
-        #     func=pygeoprocessing.routing.distance_to_channel_mfd,
-        #     args=(
-        #         (flow_dir_mfd_raster_path, 1), (outlet_raster_path, 1),
-        #         target_upstream_area_normalized_path),
-        #     kwargs={
-        #         'weight_raster_path_band': (pop_div_fa_raster_path, 1)},
-        #     dependent_task_list=[
-        #         pop_warp_task, create_outlet_raster_task, flow_dir_mfd_task,
-        #         div_pop_by_fa_task],
-        #     target_path_list=[target_upstream_area_normalized_path],
-        #     task_name=(
-        #         'calc downstream beneficiaries for '
-        #         f'{target_upstream_area_normalized_path}'))
-        #downstream_bene_by_fa_task.join()
-        stitch_queue_tuple[3].put(
-            (target_upstream_area_normalized_path, working_dir, job_id))
-
-        # TODO: mask above by hab to get target_hab_upstream_area_normalized_path,
-        LOGGER.debug(f'_mask_raster {job_id} at {working_dir} {target_beneficiaries_path}')
-        mask_downstream_norm_bene_task = task_graph.add_task(
-            func=_mask_raster,
-            args=(
-                target_upstream_area_normalized_path,
-                warped_habitat_raster_path,
-                target_hab_upstream_area_normalized_path),
-            dependent_task_list=[div_pop_by_fa_task, align_task],
-            target_path_list=[target_hab_upstream_area_normalized_path],
-            task_name=f'mask {target_hab_upstream_area_normalized_path}')
-        mask_downstream_norm_bene_task.join()
-        stitch_queue_tuple[4].put(
-            (target_hab_upstream_area_normalized_path, working_dir, job_id))
 
     task_graph.close()
     task_graph.join()
@@ -755,6 +750,12 @@ def general_worker(work_queue):
         func, args = payload
         func(*args)
 
+
+def _sqrt_op(array, nodata):
+    result = numpy.full(array.shape, nodata, dtype=numpy.float32)
+    valid_array = array >= 0
+    result[valid_array] = numpy.sqrt(array[valid_array])
+    return result
 
 def stitch_worker(
         stitch_work_queue, target_stitch_raster_path,
@@ -887,8 +888,6 @@ def main(watershed_ids=None):
             os.path.join(WORKSPACE_DIR, f'downstream_bene_{pop_id}.tif'),
             os.path.join(WORKSPACE_DIR, f'downstream_bene_{pop_id}_normalized.tif'),
             os.path.join(WORKSPACE_DIR, f'downstream_bene_{pop_id}_hab_normalized.tif'),
-            os.path.join(WORKSPACE_DIR, f'downstream_bene_{pop_id}_upstream_area_normalized.tif'),
-            os.path.join(WORKSPACE_DIR, f'downstream_bene_{pop_id}_hab_upstream_area_normalized.tif'),
             os.path.join(WORKSPACE_DIR, f'flow_accum_{pop_id}.tif')]
 
         n_stitch_rasters += len(stitch_raster_path_map[pop_id])
@@ -1069,20 +1068,14 @@ def main(watershed_ids=None):
                  hab_mask_raster_path,
                  [pop_raster_path_map[raster_id]
                   for raster_id in POPULATION_RASTER_URL_MAP.keys()],
-                 [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{
-                     job_id}.tif''')
+                 [os.path.join(workspace_dir, f'''downstream_beneficiaries_{raster_id}_{
+                     job_id}_{STREAM_DECAY_RATE}.tif''')
                   for raster_id in POPULATION_RASTER_URL_MAP.keys()],
-                 [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{
-                     job_id}_normalized.tif''')
+                 [os.path.join(workspace_dir, f'''downstream_beneficiaries_{raster_id}_{
+                     job_id}_normalized_{STREAM_DECAY_RATE}.tif''')
                   for raster_id in POPULATION_RASTER_URL_MAP.keys()],
-                 [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{
-                     job_id}_hab_normalized.tif''')
-                  for raster_id in POPULATION_RASTER_URL_MAP.keys()],
-                 [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{
-                     job_id}_upstream_area_normalized.tif''')
-                  for raster_id in POPULATION_RASTER_URL_MAP.keys()],
-                 [os.path.join(workspace_dir, f'''downstream_benficiaries_{raster_id}_{
-                     job_id}_hab_upstream_area_normalized.tif''')
+                 [os.path.join(workspace_dir, f'''downstream_beneficiaries_{raster_id}_{
+                     job_id}_hab_normalized_{STREAM_DECAY_RATE}.tif''')
                   for raster_id in POPULATION_RASTER_URL_MAP.keys()],
                  [os.path.join(workspace_dir, f'''flow_accum_{raster_id}.tif''')
                   for raster_id in POPULATION_RASTER_URL_MAP.keys()],
