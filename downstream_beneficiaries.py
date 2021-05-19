@@ -38,7 +38,7 @@ logging.getLogger('taskgraph').setLevel(logging.WARN)
 logging.getLogger('pygeoprocessing').setLevel(logging.WARN)
 
 FA_THRESHOLD = 10000
-STREAM_DECAY_RATE = .9999
+STREAM_DECAY_RATE = .999
 
 # Backport of https://github.com/python/cpython/pull/4819
 # Improvements to the Manager / proxied shared values code
@@ -885,9 +885,9 @@ def main(watershed_ids=None):
             task_name=f'download {pop_url}')
         pop_raster_path_map[pop_id] = pop_raster_path
         stitch_raster_path_map[pop_id] = [
-            os.path.join(WORKSPACE_DIR, f'downstream_bene_{pop_id}.tif'),
-            os.path.join(WORKSPACE_DIR, f'downstream_bene_{pop_id}_normalized.tif'),
-            os.path.join(WORKSPACE_DIR, f'downstream_bene_{pop_id}_hab_normalized.tif'),
+            os.path.join(WORKSPACE_DIR, f'downstream_bene_{pop_id}_{STREAM_DECAY_RATE}.tif'),
+            os.path.join(WORKSPACE_DIR, f'downstream_bene_{pop_id}_{STREAM_DECAY_RATE}_normalized.tif'),
+            os.path.join(WORKSPACE_DIR, f'downstream_bene_{pop_id}_{STREAM_DECAY_RATE}_hab_normalized.tif'),
             os.path.join(WORKSPACE_DIR, f'flow_accum_{pop_id}.tif')]
 
         n_stitch_rasters += len(stitch_raster_path_map[pop_id])
