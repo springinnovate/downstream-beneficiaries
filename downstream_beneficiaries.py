@@ -38,7 +38,7 @@ logging.getLogger('taskgraph').setLevel(logging.WARN)
 logging.getLogger('pygeoprocessing').setLevel(logging.WARN)
 
 FA_THRESHOLD = 10000
-STREAM_DECAY_RATE = .9995
+STREAM_DECAY_RATE = .995
 
 # Backport of https://github.com/python/cpython/pull/4819
 # Improvements to the Manager / proxied shared values code
