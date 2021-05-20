@@ -38,7 +38,6 @@ logging.getLogger('taskgraph').setLevel(logging.WARN)
 logging.getLogger('pygeoprocessing').setLevel(logging.WARN)
 
 FA_THRESHOLD = 10000
-BENE_HALF_LIFE = 500000
 
 # Backport of https://github.com/python/cpython/pull/4819
 # Improvements to the Manager / proxied shared values code
@@ -359,7 +358,7 @@ def rescale_by_base(base_raster_path, new_raster_path, target_raster_path):
 def process_watershed(
         job_id, watershed_vector_path, watershed_fid_list, epsg_code,
         lat_lng_watershed_bb, dem_path,
-        hab_path, pop_raster_path_list,
+        hab_path, pop_raster_path_list, bene_half_life,
         target_beneficiaries_path_list,
         target_normalized_beneficiaries_path_list,
         target_hab_normalized_beneficiaries_path_list,
@@ -381,6 +380,8 @@ def process_watershed(
         target_beneficiaries_path_list (str): list of target downstream
             beneficiary rasters to create, parallel with
             `pop_raster_path_list`.
+        bene_half_life (float): downstream distance half-life of affected
+            beneficiaries.
         target_normalized_beneficiaries_path_list (list): list of target
             normalized downstream beneficiary rasters, parallel with other
             lists.
@@ -528,14 +529,14 @@ def process_watershed(
 
     # create stream layer w/ threshold or outlet
     stream_decay_raster_path = os.path.join(
-        working_dir, f'stream_decay_{job_id}_{BENE_HALF_LIFE}.tif')
+        working_dir, f'stream_decay_{job_id}_{bene_half_life}.tif')
     stream_decay_task = task_graph.add_task(
         func=_calculate_stream_layer,
         args=(
             flow_accum_mfd_raster_path,
             flow_dir_mfd_raster_path,
             FA_THRESHOLD, outlet_raster_path,
-            BENE_HALF_LIFE, stream_decay_raster_path),
+            bene_half_life, stream_decay_raster_path),
         dependent_task_list=[flow_accum_mfd_task, flow_dir_mfd_task],
         target_path_list=[stream_decay_raster_path],
         task_name=f'calc stream layer {stream_decay_raster_path}')
@@ -879,9 +880,9 @@ def main(watershed_ids=None):
             task_name=f'download {pop_url}')
         pop_raster_path_map[pop_id] = pop_raster_path
         stitch_raster_path_map[pop_id] = [
-            os.path.join(WORKSPACE_DIR, f'downstream_bene_{pop_id}_{BENE_HALF_LIFE}.tif'),
-            os.path.join(WORKSPACE_DIR, f'downstream_bene_{pop_id}_{BENE_HALF_LIFE}_normalized.tif'),
-            os.path.join(WORKSPACE_DIR, f'downstream_bene_{pop_id}_{BENE_HALF_LIFE}_hab_normalized.tif'),
+            os.path.join(WORKSPACE_DIR, f'downstream_bene_{pop_id}_{args.bene_half_life}.tif'),
+            os.path.join(WORKSPACE_DIR, f'downstream_bene_{pop_id}_{args.bene_half_life}_normalized.tif'),
+            os.path.join(WORKSPACE_DIR, f'downstream_bene_{pop_id}_{args.bene_half_life}_hab_normalized.tif'),
             os.path.join(WORKSPACE_DIR, f'flow_accum_{pop_id}.tif')]
 
         n_stitch_rasters += len(stitch_raster_path_map[pop_id])
@@ -1062,14 +1063,15 @@ def main(watershed_ids=None):
                  hab_mask_raster_path,
                  [pop_raster_path_map[raster_id]
                   for raster_id in POPULATION_RASTER_URL_MAP.keys()],
+                 args.bene_half_life,
                  [os.path.join(workspace_dir, f'''downstream_beneficiaries_{raster_id}_{
-                     job_id}_{BENE_HALF_LIFE}m.tif''')
+                     job_id}_{args.bene_half_life}m.tif''')
                   for raster_id in POPULATION_RASTER_URL_MAP.keys()],
                  [os.path.join(workspace_dir, f'''downstream_beneficiaries_{raster_id}_{
-                     job_id}_normalized_{BENE_HALF_LIFE}m.tif''')
+                     job_id}_normalized_{args.bene_half_life}m.tif''')
                   for raster_id in POPULATION_RASTER_URL_MAP.keys()],
                  [os.path.join(workspace_dir, f'''downstream_beneficiaries_{raster_id}_{
-                     job_id}_hab_normalized_{BENE_HALF_LIFE}m.tif''')
+                     job_id}_hab_normalized_{args.bene_half_life}m.tif''')
                   for raster_id in POPULATION_RASTER_URL_MAP.keys()],
                  [os.path.join(workspace_dir, f'''flow_accum_{raster_id}.tif''')
                   for raster_id in POPULATION_RASTER_URL_MAP.keys()],
@@ -1155,6 +1157,9 @@ if __name__ == '__main__':
     parser.add_argument(
         '--clean_result', action='store_true',
         help='use this flag to delete the workspace after stitching')
+    parser.add_argument(
+        '--bene_half_life', type=float, required=True,
+        help='downstream beneficiaries distance half-life')
     parser.add_argument(
         '--max_to_run', type=int, help='max number of watersheds to process')
 
