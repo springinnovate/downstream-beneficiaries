@@ -93,10 +93,10 @@ DEM_ZIP_URL = 'https://storage.googleapis.com/global-invest-sdr-data/global_dem_
 WATERSHED_VECTOR_ZIP_URL = 'https://storage.googleapis.com/ipbes-ndr-ecoshard-data/watersheds_globe_HydroSHEDS_15arcseconds_blake2b_14ac9c77d2076d51b0258fd94d9378d4.zip'
 
 POPULATION_RASTER_URL_MAP = {
-    # '2000': 'https://storage.googleapis.com/ecoshard-root/population/lspop2000_md5_79a872e3480c998a4a8bfa28feee228c.tif',
-    '2017': 'https://storage.googleapis.com/ecoshard-root/population/lspop2017_md5_2e8da6824e4d67f8ea321ba4b585a3a5.tif',
-    'floodplain': 'https://storage.googleapis.com/ecoshard-root/population/floodplains_masked_pop_30s_md5_c027686bb9a9a36bdababbe8af35d696.tif',
-    # 'ssp3': 'https://storage.googleapis.com/ecoshard-root/population/lspop_ssp3_md5_0455273be50a249ca4af001ffa2c57e9.tif',
+     '2000': 'https://storage.googleapis.com/ecoshard-root/population/lspop2000_md5_79a872e3480c998a4a8bfa28feee228c.tif',
+    #'2017': 'https://storage.googleapis.com/ecoshard-root/population/lspop2017_md5_2e8da6824e4d67f8ea321ba4b585a3a5.tif',
+    #'floodplain': 'https://storage.googleapis.com/ecoshard-root/population/floodplains_masked_pop_30s_md5_c027686bb9a9a36bdababbe8af35d696.tif',
+     'ssp3': 'https://storage.googleapis.com/ecoshard-root/population/lspop_ssp3_md5_0455273be50a249ca4af001ffa2c57e9.tif',
     # 'canonical': 'https://storage.googleapis.com/ecoshard-root/population/canonicalpop.tif'
     }
 
