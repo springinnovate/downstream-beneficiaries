@@ -682,7 +682,7 @@ def hash_overview_compress_raster(raster_path):
         raster_path)
     ecoshard.compress_raster(
         raster_path, compressed_path, compression_algorithm='LZW')
-    ecoshard.build_overviews(compressed_path)
+    ecoshard.build_overviews(compressed_path, interpolation_method='average')
     compressed_raster = gdal.OpenEx(
         compressed_path, gdal.OF_RASTER | gdal.GA_Update)
     compressed_raster_band = compressed_raster.GetRasterBand(1)
