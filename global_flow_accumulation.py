@@ -132,8 +132,7 @@ def process_watershed(
     Return:
         None.
     """
-    working_dir = os.path.join(
-        os.path.dirname(target_flow_accum_path[0]))
+    working_dir = os.path.join(os.path.dirname(target_flow_accum_path))
     os.makedirs(working_dir, exist_ok=True)
     LOGGER.debug(f'create working directory for {job_id} at {working_dir}')
 
