@@ -519,7 +519,7 @@ def main(watershed_ids=None):
     # expecting 6 stitches, base, norm, habnorm times 2 pop scenarios
     job_complete_worker_thread = threading.Thread(
         target=job_complete_worker,
-        args=(completed_work_queue, work_db_path, args.clean_result))
+        args=(completed_work_queue, work_db_path, args.clean_result, 1))
     job_complete_worker_thread.daemon = True
     job_complete_worker_thread.start()
 
