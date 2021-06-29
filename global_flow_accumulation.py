@@ -151,8 +151,6 @@ def process_watershed(
     target_pixel_size = (300, -300)
 
     warped_dem_raster_path = os.path.join(working_dir, f'{job_id}_dem.tif')
-    warped_habitat_raster_path = os.path.join(
-        working_dir, f'{job_id}_hab.tif')
     LOGGER.debug(f'align and resize raster stack {job_id} at {working_dir}')
     mask_vector_where_filter = (
         f'"FID" in ('
@@ -172,10 +170,9 @@ def process_watershed(
                 },
             },
         target_path_list=[
-            warped_dem_raster_path, warped_habitat_raster_path],
+            warped_dem_raster_path],
         task_name=(
-            f'align and clip and warp dem/hab to {warped_dem_raster_path} '
-            f'{warped_habitat_raster_path}'))
+            f'align and clip and warp dem to {warped_dem_raster_path} '))
 
     # force a drain on the watershed if its large enough
     if len(watershed_fid_list) == 1:
@@ -436,8 +433,6 @@ def main(watershed_ids=None):
     watershed_download_dir = os.path.join(
         WORKSPACE_DIR, os.path.basename(os.path.splitext(
             WATERSHED_VECTOR_ZIP_URL)[0]))
-    population_download_dir = os.path.join(
-        WORKSPACE_DIR, 'population_rasters')
 
     work_db_path = os.path.join(WORKSPACE_DIR, 'completed_fids.db')
     LOGGER.info('fetch completed job set')
@@ -445,8 +440,7 @@ def main(watershed_ids=None):
     LOGGER.info(f'there are {len(completed_job_set)} completed jobs so far')
 
     for dir_path in [
-            dem_download_dir, watershed_download_dir,
-            population_download_dir]:
+            dem_download_dir, watershed_download_dir]:
         os.makedirs(dir_path, exist_ok=True)
 
     LOGGER.info('download dem')
