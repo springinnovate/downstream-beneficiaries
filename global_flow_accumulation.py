@@ -148,7 +148,7 @@ def process_watershed(
         watershed_info['projection_wkt'],
         epsg_sr.ExportToWkt())
 
-    target_pixel_size = (300, -300)
+    target_pixel_size = (90, -90)
 
     warped_dem_raster_path = os.path.join(working_dir, f'{job_id}_dem.tif')
     LOGGER.debug(f'align and resize raster stack {job_id} at {working_dir}')
@@ -397,7 +397,7 @@ def stitch_worker(
                 f'{target_stitch_raster_path}')
             start_time = time.time()
             pygeoprocessing.stitch_rasters(
-                stitch_buffer_list, ['near']*n_buffered,
+                stitch_buffer_list, ['average']*n_buffered,
                 (target_stitch_raster_path, 1),
                 area_weight_m2_to_wgs84=True,
                 overlap_algorithm='replace')
@@ -476,7 +476,7 @@ def main(watershed_ids=None):
 
     if not os.path.exists(fa_raster_path):
         driver = gdal.GetDriverByName('GTiff')
-        cell_size = 10./3600. * 2  # do this for Nyquist theorem
+        cell_size = 3./3600. * 2  # do this for Nyquist theorem
         n_cols = int(360./cell_size)
         n_rows = int(180./cell_size)
         LOGGER.info(f'**** creating raster of size {n_cols} by {n_rows}')
