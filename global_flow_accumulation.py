@@ -204,7 +204,7 @@ def process_watershed(
             (warped_dem_raster_path, 1), filled_dem_raster_path),
         kwargs={
             'working_dir': working_dir,
-            'max_pixel_fill_count': -1,
+            'max_pixel_fill_count': 100,
             'single_outlet_tuple': single_outlet_tuple},
         dependent_task_list=[align_task],
         target_path_list=[filled_dem_raster_path],
