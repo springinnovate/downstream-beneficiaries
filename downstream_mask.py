@@ -21,8 +21,7 @@ from osgeo import osr
 import ecoshard
 import numpy
 
-from ecoshard import geoprocessing
-from ecoshard.geoprocessing import routing
+import ecoshard.geoprocessing
 import taskgraph
 
 gdal.SetCacheMax(2**27)
@@ -35,9 +34,9 @@ logging.basicConfig(
         '%(name)s [%(funcName)s:%(lineno)d] %(message)s'))
 LOGGER = logging.getLogger(__name__)
 logging.getLogger('taskgraph').setLevel(logging.WARN)
-logging.getLogger('pygeoprocessing').setLevel(logging.WARN)
+logging.getLogger('ecoshard.geoprocessing').setLevel(logging.WARN)
 
-MASK_PATH_LIST = os.glob(os.path.join(
+MASK_PATH_LIST = glob.glob(os.path.join(
     'ecoshards', 'cna_solution_masks', '*.tif'))
 
 # Backport of https://github.com/python/cpython/pull/4819
@@ -104,10 +103,10 @@ def _warp_and_wgs84_area_scale(
         interpolation_alg, clip_bb, watershed_vector_path,
         mask_vector_where_filter,
         working_dir):
-    base_raster_info = pygeoprocessing.get_raster_info(base_raster_path)
-    model_raster_info = pygeoprocessing.get_raster_info(model_raster_path)
+    base_raster_info = ecoshard.geoprocessing.get_raster_info(base_raster_path)
+    model_raster_info = ecoshard.geoprocessing.get_raster_info(model_raster_path)
     clipped_base_path = '%s_clip%s' % os.path.splitext(target_raster_path)
-    pygeoprocessing.warp_raster(
+    ecoshard.geoprocessing.warp_raster(
         base_raster_path, base_raster_info['pixel_size'],
         clipped_base_path, 'near',
         target_bb=clip_bb,
@@ -118,9 +117,9 @@ def _warp_and_wgs84_area_scale(
         working_dir=working_dir)
 
     lat_min, lat_max = clip_bb[1], clip_bb[3]
-    _, n_rows = pygeoprocessing.get_raster_info(
+    _, n_rows = ecoshard.geoprocessing.get_raster_info(
         clipped_base_path)['raster_size']
-    m2_area_per_lat = pygeoprocessing.geoprocessing._create_latitude_m2_area_column(
+    m2_area_per_lat = ecoshard.geoprocessing.geoprocessing._create_latitude_m2_area_column(
         lat_min, lat_max, n_rows)
 
     def _mult_op(base_array, base_nodata, scale, datatype):
@@ -141,14 +140,14 @@ def _warp_and_wgs84_area_scale(
     # the pixel area in the wgs84 units divided by the area of the
     # original pixel
     base_nodata = base_raster_info['nodata'][0]
-    pygeoprocessing.raster_calculator(
+    ecoshard.geoprocessing.raster_calculator(
         [(clipped_base_path, 1), (base_nodata, 'raw'),
          base_pixel_area_m2/m2_area_per_lat,
          (numpy.float32, 'raw')], _mult_op,
         scaled_raster_path,
         gdal.GDT_Float32, base_nodata)
 
-    pygeoprocessing.warp_raster(
+    ecoshard.geoprocessing.warp_raster(
         scaled_raster_path, model_raster_info['pixel_size'],
         target_raster_path, 'near',
         target_projection_wkt=model_raster_info['projection_wkt'],
@@ -191,12 +190,12 @@ def process_watershed(
 
     task_graph = taskgraph.TaskGraph(working_dir, -1)
 
-    watershed_info = geoprocessing.get_vector_info(watershed_vector_path)
+    watershed_info = ecoshard.geoprocessing.get_vector_info(watershed_vector_path)
 
     epsg_sr = osr.SpatialReference()
     epsg_sr.ImportFromEPSG(epsg_code)
 
-    target_watershed_bb = geoprocessing.transform_bounding_box(
+    target_watershed_bb = ecoshard.geoprocessing.transform_bounding_box(
         lat_lng_watershed_bb,
         watershed_info['projection_wkt'],
         epsg_sr.ExportToWkt())
@@ -220,7 +219,7 @@ def process_watershed(
         f'{", ".join([str(v) for v in watershed_fid_list])})')
     LOGGER.debug(mask_vector_where_filter)
     align_task = task_graph.add_task(
-        func=geoprocessing.align_and_resize_raster_stack,
+        func=ecoshard.geoprocessing.align_and_resize_raster_stack,
         args=(
             [dem_path] + mask_path_list,
             [warped_dem_raster_path] + warped_mask_raster_path_list,
@@ -242,7 +241,7 @@ def process_watershed(
     if len(watershed_fid_list) == 1:
         LOGGER.debug(f'detect_lowest_drain_and_sink {job_id} at {working_dir}')
         get_drain_sink_pixel_task = task_graph.add_task(
-            func=geoprocessing.routing.detect_lowest_drain_and_sink,
+            func=ecoshard.geoprocessing.routing.detect_lowest_drain_and_sink,
             args=((warped_dem_raster_path, 1),),
             store_result=True,
             dependent_task_list=[align_task],
@@ -263,7 +262,7 @@ def process_watershed(
         working_dir, f'{job_id}_filled_dem.tif')
     LOGGER.debug(f'fill_pits {job_id} at {working_dir}')
     fill_pits_task = task_graph.add_task(
-        func=routing.fill_pits,
+        func=ecoshard.geoprocessing.routing.fill_pits,
         args=(
             (warped_dem_raster_path, 1), filled_dem_raster_path),
         kwargs={
@@ -278,7 +277,7 @@ def process_watershed(
     flow_dir_mfd_raster_path = os.path.join(
         working_dir, f'{job_id}_flow_dir_mfd.tif')
     flow_dir_mfd_task = task_graph.add_task(
-        func=routing.flow_dir_mfd,
+        func=ecoshard.geoprocessing.routing.flow_dir_mfd,
         args=(
             (filled_dem_raster_path, 1), flow_dir_mfd_raster_path),
         kwargs={'working_dir': working_dir},
@@ -293,7 +292,7 @@ def process_watershed(
             f'downstream_{os.path.basename(warped_mask_raster_path)}')
         LOGGER.debug(f'create downstream mask raster {job_id} at {working_dir}')
         flow_accum_mfd_task = task_graph.add_task(
-            func=routing.flow_accumulation_mfd,
+            func=ecoshard.geoprocessing.routing.flow_accumulation_mfd,
             args=(
                 (flow_dir_mfd_raster_path, 1), target_downstream_mask_path),
             dependent_task_list=[flow_dir_mfd_task],
@@ -458,7 +457,7 @@ def stitch_worker(
                 f'about to stitch {n_buffered} into '
                 f'{target_stitch_raster_path}')
             start_time = time.time()
-            geoprocessing.stitch_rasters(
+            ecoshard.geoprocessing.stitch_rasters(
                 stitch_buffer_list, ['near']*n_buffered,
                 (target_stitch_raster_path, 1),
                 area_weight_m2_to_wgs84=True,
@@ -516,6 +515,7 @@ def main(watershed_ids=None):
             os.path.join(
                 dem_download_dir, os.path.basename(DEM_ZIP_URL))],
         task_name='download and unzip dem')
+    download_dem_task.join()
 
     dem_tile_dir = os.path.join(dem_download_dir, 'global_dem_3s')
     dem_vrt_path = os.path.join(
@@ -524,18 +524,20 @@ def main(watershed_ids=None):
     LOGGER.debug(f'build vrt to {dem_vrt_path}')
 
     LOGGER.info('build vrt')
-    task_graph.add_task(
+    build_vrt_task = task_graph.add_task(
         func=subprocess.run,
         args=(f'gdalbuildvrt {dem_vrt_path} {dem_tile_dir}/*.tif',),
         kwargs={'shell': True, 'check': True},
         target_path_list=[dem_vrt_path],
         dependent_task_list=[download_dem_task],
         task_name='build dem vrt')
+    build_vrt_task.join()
 
     download_watershed_vector_task = task_graph.add_task(
         func=ecoshard.download_and_unzip,
         args=(WATERSHED_VECTOR_ZIP_URL, watershed_download_dir),
         task_name='download and unzip watershed vector')
+    download_watershed_vector_task.join()
 
     n_stitch_rasters = 0
     stitch_raster_path_map = {}
@@ -699,7 +701,7 @@ def main(watershed_ids=None):
             LOGGER.info(
                 f'scheduling {job_id} of area {area} and {len(fid_list)} '
                 f'watersheds')
-            job_bb = pygeoprocessing.merge_bounding_box_list(
+            job_bb = ecoshard.geoprocessing.merge_bounding_box_list(
                 watershed_envelope_list, 'union')
 
             workspace_dir = os.path.join(WATERSHED_WORKSPACE_DIR, job_id)
@@ -791,9 +793,6 @@ if __name__ == '__main__':
     parser.add_argument(
         '--clean_result', action='store_true',
         help='use this flag to delete the workspace after stitching')
-    parser.add_argument(
-        '--bene_half_life', type=float, required=True,
-        help='downstream beneficiaries distance half-life')
     parser.add_argument(
         '--max_to_run', type=int, help='max number of watersheds to process')
 
