@@ -7,6 +7,7 @@ import math
 import multiprocessing
 import os
 import pathlib
+import queue
 import shutil
 import sqlite3
 import subprocess
@@ -22,6 +23,7 @@ import ecoshard
 import numpy
 
 import ecoshard.geoprocessing as geoprocessing
+import ecoshard.geoprocessing.routing as routing
 import taskgraph
 
 gdal.SetCacheMax(2**27)
@@ -106,6 +108,22 @@ for dir_path in [
         WORKSPACE_DIR, WATERSHED_WORKSPACE_DIR, STITCHED_WORKSPACE_DIR]:
     os.makedirs(dir_path, exist_ok=True)
 N_TO_STITCH = 100
+
+
+def _mask_op(base_array, nodata, target_nodata):
+    """Set > 0 to 1, 0==0 and nodata to nodata."""
+    result = numpy.full(base_array.shape, target_nodata, dtype=numpy.int8)
+    valid_mask = base_array != nodata
+    result[valid_mask] = base_array[valid_mask] > 0
+    return result
+
+
+def threshold_raster(base_raster_path, target_mask_path):
+    """Threshold base to 0/1 mask and preserve nodata."""
+    raster_info = geoprocessing.get_raster_info(base_raster_path)
+    geoprocessing.raster_calculator(
+        [(base_raster_path, 1), (raster_info['nodata'], 'raw'), (2, 'raw')],
+        _mask_op, target_mask_path, gdal.GDT_Byte, 2)
 
 
 def process_watershed(
@@ -200,7 +218,7 @@ def process_watershed(
             LOGGER.debug(
                 f'detect_lowest_drain_and_sink {job_id} at {working_dir}')
             get_drain_sink_pixel_task = task_graph.add_task(
-                func=geoprocessing.routing.detect_lowest_drain_and_sink,
+                func=routing.detect_lowest_drain_and_sink,
                 args=((warped_dem_raster_path, 1),),
                 store_result=True,
                 dependent_task_list=[align_task],
@@ -221,7 +239,7 @@ def process_watershed(
             working_dir, f'{job_id}_filled_dem.tif')
         LOGGER.debug(f'fill_pits {job_id} at {working_dir}')
         fill_pits_task = task_graph.add_task(
-            func=geoprocessing.routing.fill_pits,
+            func=routing.fill_pits,
             args=(
                 (warped_dem_raster_path, 1), filled_dem_raster_path),
             kwargs={
@@ -236,7 +254,7 @@ def process_watershed(
         flow_dir_mfd_raster_path = os.path.join(
             working_dir, f'{job_id}_flow_dir_mfd.tif')
         flow_dir_mfd_task = task_graph.add_task(
-            func=geoprocessing.routing.flow_dir_mfd,
+            func=routing.flow_dir_mfd,
             args=(
                 (filled_dem_raster_path, 1), flow_dir_mfd_raster_path),
             kwargs={'working_dir': working_dir},
@@ -246,24 +264,38 @@ def process_watershed(
 
         for warped_mask_raster_path, stitch_work_queue in zip(
                 warped_mask_raster_path_list, target_stitch_work_queue_list):
-            target_downstream_mask_path = os.path.join(
+            upstream_sum_mask_path = os.path.join(
                 working_dir,
                 f'downstream_{os.path.basename(warped_mask_raster_path)}')
             LOGGER.debug(
                 f'create downstream mask raster {job_id} at {working_dir}')
             flow_accum_mfd_task = task_graph.add_task(
-                func=geoprocessing.routing.flow_accumulation_mfd,
+                func=routing.flow_accumulation_mfd,
                 args=(
                     (flow_dir_mfd_raster_path, 1),
-                    target_downstream_mask_path),
+                    upstream_sum_mask_path),
                 dependent_task_list=[flow_dir_mfd_task],
                 kwargs={
                     'weight_raster_path_band': (warped_mask_raster_path, 1)},
-                target_path_list=[target_downstream_mask_path],
-                task_name=f'calc flow accum for {target_downstream_mask_path}')
-            flow_accum_mfd_task.join()
+                target_path_list=[upstream_sum_mask_path],
+                task_name=f'calc flow accum for {upstream_sum_mask_path}')
+
+            target_upstream_mask_path = os.path.join(
+                working_dir,
+                f'upstream_mask_{os.path.basename(warped_mask_raster_path)}')
+
+            threshold_task = task_graph.add_task(
+                func=threshold_raster,
+                args=(upstream_sum_mask_path, target_upstream_mask_path),
+                target_path_list=[target_upstream_mask_path],
+                dependent_task_list=[flow_accum_mfd_task],
+                task_name=f'threshold {upstream_sum_mask_path}')
+
+            threshold_task.join()
+            stitch_start_time = time.time()
             stitch_work_queue.put(
-                (target_downstream_mask_path, working_dir, job_id))
+                (target_upstream_mask_path, working_dir, job_id))
+            LOGGER.debug(f'took {time.time()-stitch_start_time:.3f}s to put stitch for {job_id}')
 
         task_graph.close()
         task_graph.join()
@@ -344,10 +376,12 @@ def job_complete_worker(
             WATERSHEDS_TO_PROCESS_COUNT -= 1
             if clean_result:
                 shutil.rmtree(working_dir, ignore_errors=True)
-            cursor = connection.execute(
+            sql_command = (
                 f"""
                 INSERT INTO completed_job_ids VALUES ("{job_id}")
                 """)
+            LOGGER.debug(sql_command)
+            cursor = connection.execute(sql_command)
             cursor.close()
             LOGGER.info(f'done with {job_id} {working_dir}')
             uncommited_count += 1
@@ -380,16 +414,25 @@ def job_complete_worker(
         raise
 
 
-def general_worker(work_queue):
+def general_worker(work_queue, worker_id, max_workers):
     """Invoke func on args coming through work queue."""
+    last_time = time.time()
     while True:
-        payload = work_queue.get()
+        try:
+            payload = work_queue.get(True, 5)
+        except queue.Empty:
+            LOGGER.info(f'worker {worker_id} of {max_workers} waiting {time.time()-last_time:.3}s for work.')
+            continue
         if payload is None:
             work_queue.put(None)
             LOGGER.debug('got a none on general worker, quitting')
             break
         func, args = payload
+        start_time = time.time()
+        LOGGER.info(f'worker {worker_id} of {max_workers} waited {start_time-last_time:.3}s for work and is starting.')
         func(*args)
+        LOGGER.info(f'worker {worker_id} of {max_workers} DONE in {time.time()-start_time:.3}s')
+        last_time = time.time()
 
 
 def _sqrt_op(array, nodata):
@@ -433,7 +476,7 @@ def stitch_worker(
             geoprocessing.stitch_rasters(
                 stitch_buffer_list, ['near']*n_buffered,
                 (target_stitch_raster_path, 1),
-                area_weight_m2_to_wgs84=True,
+                area_weight_m2_to_wgs84=False,
                 overlap_algorithm='replace')
             for working_dir, job_id in done_buffer:
                 stitch_done_queue.put((working_dir, job_id))
@@ -449,7 +492,7 @@ def stitch_worker(
             break
 
 
-def main(watershed_ids=None):
+def main(watershed_ids=None, n_workers=multiprocessing.cpu_count()):
     """Entry point.
 
     Args:
@@ -499,7 +542,7 @@ def main(watershed_ids=None):
     LOGGER.info('build vrt')
     build_vrt_task = task_graph.add_task(
         func=subprocess.run,
-        args=(f'gdalbuildvrt {dem_vrt_path} {dem_tile_dir}/*.tif',),
+        args=(f"gdalbuildvrt {dem_vrt_path} {os.path.join(dem_tile_dir, '*.tif')}",),
         kwargs={'shell': True, 'check': True},
         target_path_list=[dem_vrt_path],
         dependent_task_list=[download_dem_task],
@@ -512,33 +555,7 @@ def main(watershed_ids=None):
         task_name='download and unzip watershed vector')
     download_watershed_vector_task.join()
 
-    n_stitch_rasters = 0
     stitch_raster_path_map = {}
-    for mask_path in MASK_PATH_LIST:
-        mask_id = os.path.basename(os.path.splitext(mask_path)[0])
-        stitch_raster_path = os.path.join(
-            WORKSPACE_DIR, f'downstream_mask_{mask_id}.tif')
-        if not os.path.exists(stitch_raster_path):
-            driver = gdal.GetDriverByName('GTiff')
-            cell_size = 10./3600. * 2  # do this for Nyquist theorem
-            n_cols = int(360./cell_size)
-            n_rows = int(180./cell_size)
-            LOGGER.info(f'**** creating raster of size {n_cols} by {n_rows}')
-            target_raster = driver.Create(
-                stitch_raster_path,
-                int(360/cell_size), int(180/cell_size), 1,
-                gdal.GDT_Float32,
-                options=(
-                    'TILED=YES', 'BIGTIFF=YES', 'COMPRESS=LZW',
-                    'SPARSE_OK=TRUE', 'BLOCKXSIZE=256', 'BLOCKYSIZE=256'))
-            wgs84_srs = osr.SpatialReference()
-            wgs84_srs.ImportFromEPSG(4326)
-            target_raster.SetProjection(wgs84_srs.ExportToWkt())
-            target_raster.SetGeoTransform(
-                [-180, cell_size, 0, 90, 0, -cell_size])
-            target_band = target_raster.GetRasterBand(1)
-            target_band.SetNoDataValue(-9999)
-            target_raster = None
 
     LOGGER.info('wait for downloads to conclude')
     task_graph.join()
@@ -551,28 +568,54 @@ def main(watershed_ids=None):
     LOGGER.info('start complete worker thread')
     global WATERSHEDS_TO_PROCESS_COUNT
     WATERSHEDS_TO_PROCESS_COUNT = 0
-    # expecting 6 stitches, base, norm, habnorm times 2 pop scenarios
     job_complete_worker_thread = threading.Thread(
         target=job_complete_worker,
         args=(
             completed_work_queue, work_db_path, args.clean_result,
-            n_stitch_rasters))
+            len(MASK_PATH_LIST)))
     job_complete_worker_thread.daemon = True
     job_complete_worker_thread.start()
 
     # contains work queues for each mask
     stitch_work_queue_list = []
     stitch_worker_process_list = []
-    for mask_raster in MASK_PATH_LIST:
+    for mask_raster_path in MASK_PATH_LIST:
+
+        mask_id = os.path.basename(os.path.splitext(mask_raster_path)[0])
+        stitch_raster_path = os.path.join(
+            STITCHED_WORKSPACE_DIR, f'upstream_mask_{mask_id}.tif')
+        if not os.path.exists(stitch_raster_path):
+            driver = gdal.GetDriverByName('GTiff')
+            cell_size = 10./3600. * 2  # do this for Nyquist theorem
+            n_cols = int(360./cell_size)
+            n_rows = int(180./cell_size)
+            LOGGER.info(f'**** creating raster of size {n_cols} by {n_rows}')
+            target_raster = driver.Create(
+                stitch_raster_path,
+                int(360/cell_size), int(180/cell_size), 1,
+                gdal.GDT_Byte,
+                options=(
+                    'TILED=YES', 'BIGTIFF=YES', 'COMPRESS=LZW',
+                    'SPARSE_OK=TRUE', 'BLOCKXSIZE=256', 'BLOCKYSIZE=256'))
+            wgs84_srs = osr.SpatialReference()
+            wgs84_srs.ImportFromEPSG(4326)
+            target_raster.SetProjection(wgs84_srs.ExportToWkt())
+            target_raster.SetGeoTransform(
+                [-180, cell_size, 0, 90, 0, -cell_size])
+            target_band = target_raster.GetRasterBand(1)
+            target_band.SetNoDataValue(2)
+            target_band.SetStatistics(0, 1, 0, 0)
+            target_raster = None
+
         stitch_work_queue = manager.Queue(N_TO_STITCH*2)
         stitch_work_queue_list.append(stitch_work_queue)
         target_stitch_raster_path = os.path.join(
-            STITCHED_WORKSPACE_DIR, os.path.basename(mask_raster))
+            STITCHED_WORKSPACE_DIR, os.path.basename(mask_raster_path))
         LOGGER.debug(f'starting a stitcher for {target_stitch_raster_path}')
         stitch_worker_process = multiprocessing.Process(
             target=stitch_worker,
             args=(
-                stitch_work_queue, target_stitch_raster_path,
+                stitch_work_queue, stitch_raster_path,
                 completed_work_queue, args.clean_result))
         stitch_worker_process.deamon = True
         stitch_worker_process.start()
@@ -584,10 +627,10 @@ def main(watershed_ids=None):
         watershed_download_dir, 'watersheds_globe_HydroSHEDS_15arcseconds')
 
     watershed_worker_process_list = []
-    for _ in range(1): #multiprocessing.cpu_count()):
+    for worker_id in range(n_workers):
         watershed_worker_process = multiprocessing.Process(
             target=general_worker,
-            args=(watershed_work_queue,))
+            args=(watershed_work_queue, worker_id+1, n_workers))
         watershed_worker_process.daemon = True
         watershed_worker_process.start()
         watershed_worker_process_list.append(watershed_worker_process)
@@ -682,17 +725,17 @@ def main(watershed_ids=None):
                 watershed_envelope_list, 'union')
 
             workspace_dir = os.path.join(WATERSHED_WORKSPACE_DIR, job_id)
+            LOGGER.debug(f'putting {job_id} to work')
+            watershed_work_queue.put((
+                process_watershed,
+                (job_id, watershed_path, fid_list, epsg, job_bb, dem_vrt_path,
+                 MASK_PATH_LIST,
+                 workspace_dir,
+                 stitch_work_queue_list)))
 
-            #watershed_work_queue.put((
-            #    process_watershed,
-            #    (job_id, watershed_path, fid_list, epsg, job_bb, dem_vrt_path,
-            #     MASK_PATH_LIST,
-            #     workspace_dir,
-            #     stitch_work_queue_list)))
-
-            process_watershed(
-                job_id, watershed_path, fid_list, epsg, job_bb, dem_vrt_path,
-                MASK_PATH_LIST, workspace_dir, stitch_work_queue_list)
+            #process_watershed(
+            #    job_id, watershed_path, fid_list, epsg, job_bb, dem_vrt_path,
+            #    MASK_PATH_LIST, workspace_dir, stitch_work_queue_list)
 
             WATERSHEDS_TO_PROCESS_COUNT += 1
 
@@ -778,7 +821,10 @@ if __name__ == '__main__':
         help='use this flag to delete the workspace after stitching')
     parser.add_argument(
         '--max_to_run', type=int, help='max number of watersheds to process')
+    parser.add_argument(
+        '--n_workers', type=int, default=multiprocessing.cpu_count(),
+        help='max number of watersheds to process')
 
     args = parser.parse_args()
 
-    main(watershed_ids=args.watershed_ids)
+    main(watershed_ids=args.watershed_ids, n_workers=args.n_workers)
