@@ -266,7 +266,7 @@ def process_watershed(
                 warped_mask_raster_path_list, target_stitch_work_queue_list):
             upstream_sum_mask_path = os.path.join(
                 working_dir,
-                f'downstream_{os.path.basename(warped_mask_raster_path)}')
+                f'upstream_{os.path.basename(warped_mask_raster_path)}')
             LOGGER.debug(
                 f'create downstream mask raster {job_id} at {working_dir}')
             flow_accum_mfd_task = task_graph.add_task(
