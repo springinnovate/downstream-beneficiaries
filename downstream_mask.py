@@ -38,7 +38,7 @@ logging.getLogger('taskgraph').setLevel(logging.WARN)
 logging.getLogger('ecoshard.geoprocessing').setLevel(logging.WARN)
 
 MASK_PATH_LIST = glob.glob(os.path.join(
-    'ecoshards', 'cna_solution_masks', '*.tif'))
+    'ecoshards', '*.tif'))
 
 # Backport of https://github.com/python/cpython/pull/4819
 # Improvements to the Manager / proxied shared values code
