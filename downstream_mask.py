@@ -583,7 +583,7 @@ def main(watershed_ids=None, n_workers=multiprocessing.cpu_count()):
 
         mask_id = os.path.basename(os.path.splitext(mask_raster_path)[0])
         stitch_raster_path = os.path.join(
-            STITCHED_WORKSPACE_DIR, f'upstream_mask_{mask_id}.tif')
+            STITCHED_WORKSPACE_DIR, f'downstream_mask_{mask_id}.tif')
         if not os.path.exists(stitch_raster_path):
             driver = gdal.GetDriverByName('GTiff')
             cell_size = 10./3600. * 2  # do this for Nyquist theorem
