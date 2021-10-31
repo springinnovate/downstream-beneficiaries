@@ -93,15 +93,19 @@ DEM_ZIP_URL = 'https://storage.googleapis.com/global-invest-sdr-data/global_dem_
 WATERSHED_VECTOR_ZIP_URL = 'https://storage.googleapis.com/ipbes-ndr-ecoshard-data/watersheds_globe_HydroSHEDS_15arcseconds_blake2b_14ac9c77d2076d51b0258fd94d9378d4.zip'
 
 POPULATION_RASTER_URL_MAP = {
-     '2000': 'https://storage.googleapis.com/ecoshard-root/population/lspop2000_md5_79a872e3480c998a4a8bfa28feee228c.tif',
+    #'2000': 'https://storage.googleapis.com/ecoshard-root/population/lspop2000_md5_79a872e3480c998a4a8bfa28feee228c.tif',
     #'2017': 'https://storage.googleapis.com/ecoshard-root/population/lspop2017_md5_2e8da6824e4d67f8ea321ba4b585a3a5.tif',
     #'floodplain': 'https://storage.googleapis.com/ecoshard-root/population/floodplains_masked_pop_30s_md5_c027686bb9a9a36bdababbe8af35d696.tif',
-     'ssp3': 'https://storage.googleapis.com/ecoshard-root/population/lspop_ssp3_md5_0455273be50a249ca4af001ffa2c57e9.tif',
-    # 'canonical': 'https://storage.googleapis.com/ecoshard-root/population/canonicalpop.tif'
+    #'ssp3': 'https://storage.googleapis.com/ecoshard-root/population/lspop_ssp3_md5_0455273be50a249ca4af001ffa2c57e9.tif',
+    # 'canonical': 'https://storage.googleapis.com/ecoshard-root/population/canonicalpop.tif',
+    '2019': 'https://storage.googleapis.com/ecoshard-root/population/lspop2019_compressed_md5_d0bf03bd0a2378196327bbe6e898b70c.tif',
     }
 
-HAB_MASK_URL = 'https://storage.googleapis.com/critical-natural-capital-ecoshards/habmasks/masked_all_nathab_esa2015_md5_50debbf5fba6dbdaabfccbc39a9b1670.tif'
+#HAB_MASK_URL = 'https://storage.googleapis.com/critical-natural-capital-ecoshards/habmasks/masked_all_nathab_esa2015_md5_50debbf5fba6dbdaabfccbc39a9b1670.tif'
 
+# TODO: change these when you want a different hab mask
+ESA_HAB_MASK_URL = 'https://storage.googleapis.com/ecoshard-root/ci_global_restoration/ESACCI-LC-L4-LCCS-Map-300m-P1Y-2020-v2.1.1_md5_2ed6285e6f8ec1e7e0b75309cc6d6f9f_hab_mask.tif'
+RESTORATION_HAB_MASK_URL = 'https://storage.googleapis.com/ecoshard-root/ci_global_restoration/restoration_pnv0.0001_on_ESA2020_clip_md5_93d43b6124c73cb5dc21698ea5f9c8f4_hab_mask.tif'
 
 WORKSPACE_DIR = 'workspace'
 WATERSHED_WORKSPACE_DIR = os.path.join(WORKSPACE_DIR, 'watershed_workspace')
@@ -797,7 +801,7 @@ def stitch_worker(
             break
 
 
-def main(watershed_ids=None):
+def main(prefix, hab_mask_url, watershed_ids=None):
     """Entry point.
 
     Args:
@@ -857,14 +861,13 @@ def main(watershed_ids=None):
         args=(WATERSHED_VECTOR_ZIP_URL, watershed_download_dir),
         task_name='download and unzip watershed vector')
 
-    HAB_MASK_URL
     hab_mask_raster_path = os.path.join(
-        WORKSPACE_DIR, os.path.basename(HAB_MASK_URL))
+        WORKSPACE_DIR, os.path.basename(hab_mask_url))
     download_hab_mask_task = task_graph.add_task(
         func=ecoshard.download_url,
-        args=(HAB_MASK_URL, hab_mask_raster_path),
+        args=(hab_mask_url, hab_mask_raster_path),
         target_path_list=[hab_mask_raster_path],
-        task_name=f'download {HAB_MASK_URL}')
+        task_name=f'download {hab_mask_url}')
 
     n_stitch_rasters = 0
     pop_raster_path_map = {}
@@ -880,10 +883,10 @@ def main(watershed_ids=None):
             task_name=f'download {pop_url}')
         pop_raster_path_map[pop_id] = pop_raster_path
         stitch_raster_path_map[pop_id] = [
-            os.path.join(WORKSPACE_DIR, f'downstream_bene_{pop_id}_{args.bene_half_life}.tif'),
-            os.path.join(WORKSPACE_DIR, f'downstream_bene_{pop_id}_{args.bene_half_life}_normalized.tif'),
-            os.path.join(WORKSPACE_DIR, f'downstream_bene_{pop_id}_{args.bene_half_life}_hab_normalized.tif'),
-            os.path.join(WORKSPACE_DIR, f'flow_accum_{pop_id}.tif')]
+            os.path.join(WORKSPACE_DIR, f'{prefix}downstream_bene_{pop_id}_{args.bene_half_life}.tif'),
+            os.path.join(WORKSPACE_DIR, f'{prefix}downstream_bene_{pop_id}_{args.bene_half_life}_normalized.tif'),
+            os.path.join(WORKSPACE_DIR, f'{prefix}downstream_bene_{pop_id}_{args.bene_half_life}_hab_normalized.tif'),
+            os.path.join(WORKSPACE_DIR, f'{prefix}flow_accum_{pop_id}.tif')]
 
         n_stitch_rasters += len(stitch_raster_path_map[pop_id])
 
@@ -1165,4 +1168,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    main(watershed_ids=args.watershed_ids)
+    for prefix, hab_mask_url in [
+            ('esa', ESA_HAB_MASK_URL),
+            ('restoration', RESTORATION_HAB_MASK_URL)]:
+        main(prefix, hab_mask_url, watershed_ids=args.watershed_ids)
