@@ -6,6 +6,7 @@ import logging
 import math
 import multiprocessing
 import os
+import queue
 import pathlib
 import shutil
 import sqlite3
@@ -32,8 +33,8 @@ logging.basicConfig(
         '%(asctime)s (%(relativeCreated)d) %(processName)s %(levelname)s '
         '%(name)s [%(funcName)s:%(lineno)d] %(message)s'))
 LOGGER = logging.getLogger(__name__)
-logging.getLogger('taskgraph').setLevel(logging.WARN)
-logging.getLogger('geoprocessing').setLevel(logging.WARN)
+logging.getLogger('ecoshard.taskgraph').setLevel(logging.WARN)
+logging.getLogger('ecoshard.geoprocessing').setLevel(logging.WARN)
 
 FA_THRESHOLD = 10000
 
@@ -120,35 +121,34 @@ def _calculate_stream_layer(
     nodata = -1
     pixel_size = geoprocessing.get_raster_info(
         flow_accum_raster_path)['pixel_size'][0]
-    half_life = .5**(pixel_size/half_life)
-    geoprocessing.new_raster_from_base(
-        flow_accum_raster_path, target_stream_raster_path, gdal.GDT_Float32,
-        [nodata], fill_value_list=[half_life])
+    decay_rate = .5**(pixel_size/half_life)
 
-    # directory = os.path.dirname(target_stream_raster_path)
-    # stream_raster_path = os.path.join(
-    #     directory, f'stream_{os.path.basename(target_stream_raster_path)}')
+    LOGGER.debug(f'************pixel_size: {pixel_size} {half_life} {decay_rate} {pixel_size/half_life}')
 
-    # routing.extract_streams_mfd(
-    #     (flow_accum_raster_path, 1), (flow_dir_mfd_raster_path, 1),
-    #     fa_threshold, stream_raster_path)
+    directory = os.path.dirname(target_stream_raster_path)
+    stream_raster_path = os.path.join(
+        directory, f'stream_{os.path.basename(target_stream_raster_path)}')
 
-    # stream_nodata = geoprocessing.get_raster_info(
-    #     stream_raster_path)['nodata'][0]
+    routing.extract_streams_mfd(
+        (flow_accum_raster_path, 1), (flow_dir_mfd_raster_path, 1),
+        fa_threshold, stream_raster_path)
 
-    # def scale_and_merge(stream_array, outlet):
-    #     result = numpy.full(stream_array.shape, nodata, dtype=numpy.float32)
-    #     valid_mask = ~numpy.isclose(stream_array, stream_nodata)
-    #     result[valid_mask] = 1
-    #     result[valid_mask] = numpy.where(
-    #         stream_array[valid_mask] > 0, scale_value, 1.0)
-    #     result[outlet == 1] = scale_value
-    #     return result
+    stream_nodata = geoprocessing.get_raster_info(
+        stream_raster_path)['nodata'][0]
 
-    # geoprocessing.raster_calculator(
-    #     [(stream_raster_path, 1), (outlet_raster_path, 1)],
-    #     scale_and_merge, target_stream_raster_path, gdal.GDT_Float32,
-    #     nodata)
+    def scale_and_merge(stream_array, outlet):
+        result = numpy.full(stream_array.shape, nodata, dtype=numpy.float32)
+        valid_mask = ~numpy.isclose(stream_array, stream_nodata)
+        result[valid_mask] = decay_rate
+        result[valid_mask] = numpy.where(
+            stream_array[valid_mask] > 0, 1.0, decay_rate)
+        result[outlet == 1] = 1.0
+        return result
+
+    geoprocessing.raster_calculator(
+        [(stream_raster_path, 1), (outlet_raster_path, 1)],
+        scale_and_merge, target_stream_raster_path, gdal.GDT_Float32,
+        nodata)
 
 
 def _warp_and_wgs84_area_scale(
@@ -576,11 +576,13 @@ def process_watershed(
             f'distance_to_channel_mfd {job_id} at {working_dir} {target_beneficiaries_path}')
 
         downstream_bene_task = task_graph.add_task(
-            func=_calc_distance_weighted_benficiaries,
+            func=routing.distance_to_channel_mfd,
             args=(
                 (flow_dir_mfd_raster_path, 1), (outlet_raster_path, 1),
-                (aligned_pop_raster_path, 1), bene_half_life,
                 target_beneficiaries_path),
+            kwargs={
+                'weight_raster_path_band': (aligned_pop_raster_path, 1),
+                'decay_raster_path_band': (stream_decay_raster_path, 1)},
             dependent_task_list=[
                 pop_warp_task, create_outlet_raster_task, flow_dir_mfd_task,
                 stream_decay_task],
@@ -589,6 +591,7 @@ def process_watershed(
                 'calc downstream beneficiaries for '
                 f'{target_beneficiaries_path}'))
 
+        # TODO: roll this into a function that does the put?
         downstream_bene_task.join()
         stitch_queue_tuple[0].put(
             (target_beneficiaries_path, working_dir, job_id))
@@ -745,7 +748,10 @@ def general_worker(work_queue):
             LOGGER.debug('got a none on general worker, quitting')
             break
         func, args = payload
-        func(*args)
+        process = multiprocessing.Process(
+            target=func, args=args)
+        process.start()
+        process.join()
 
 
 def _sqrt_op(array, nodata):
@@ -919,7 +925,7 @@ def main(prefix, hab_mask_url, watershed_ids=None):
     task_graph.close()
     task_graph = None
 
-    apply_manager_autopatch()
+    #apply_manager_autopatch()
     manager = multiprocessing.Manager()
     completed_work_queue = manager.Queue()
     LOGGER.info('start complete worker thread')
@@ -956,14 +962,14 @@ def main(prefix, hab_mask_url, watershed_ids=None):
             stitch_worker_process.start()
             stitch_worker_process_list.append(stitch_worker_process)
 
-    watershed_work_queue = manager.Queue()
+    watershed_work_queue = queue.Queue()
 
     watershed_root_dir = os.path.join(
         watershed_download_dir, 'watersheds_globe_HydroSHEDS_15arcseconds')
 
     watershed_worker_process_list = []
-    for _ in range(multiprocessing.cpu_count()):
-        watershed_worker_process = multiprocessing.Process(
+    for _ in range(1): #multiprocessing.cpu_count()):
+        watershed_worker_process = threading.Thread(
             target=general_worker,
             args=(watershed_work_queue,))
         watershed_worker_process.daemon = True
@@ -1096,21 +1102,21 @@ def main(prefix, hab_mask_url, watershed_ids=None):
 
     completed_work_queue.put(None)
     job_complete_worker_thread.join()
-    LOGGER.info('compressing/overview/ecoshard result')
+    #LOGGER.info('compressing/overview/ecoshard result')
 
-    hash_thread_list = []
-    for pop_id in stitch_raster_path_map:
-        for raster_path in stitch_raster_path_map[pop_id]:
-            hash_thread = threading.Thread(
-                target=hash_overview_compress_raster,
-                args=(raster_path,))
-            hash_thread.daemon = True
-            hash_thread.start()
-            hash_thread_list.append(hash_thread)
+    #hash_thread_list = []
+    #for pop_id in stitch_raster_path_map:
+    #    for raster_path in stitch_raster_path_map[pop_id]:
+    #        hash_thread = threading.Thread(
+    #            target=hash_overview_compress_raster,
+    #            args=(raster_path,))
+    #        hash_thread.daemon = True
+    #        hash_thread.start()
+    #        hash_thread_list.append(hash_thread)
 
-    LOGGER.info('waiting for compress/overview/ecoshard complete')
-    for hash_thread in hash_thread_list:
-        hash_thread.join()
+    #LOGGER.info('waiting for compress/overview/ecoshard complete')
+    #for hash_thread in hash_thread_list:
+    #    hash_thread.join()
     LOGGER.info('all done')
 
 
@@ -1160,33 +1166,6 @@ def _make_vrt(base_raster_path_list, target_vrt_path):
         raise RuntimeError(
             f"didn't make VRT at {target_vrt_path}")
     target_raster = None
-
-
-def _calc_distance_weighted_benficiaries(
-        flow_dir_mfd_path_band, outlet_path_band, population_path_band,
-        half_life, target_beneficiaries_path):
-    """Calculate MFD weighted distance with decay.
-
-    Args:
-        flow_dir_mfd_path_band (tuple): raster path/band tuple for MFD flow
-            direction
-        outlet_path_band (tuple): raster path/band tuple for 0/1 outlets used
-            for detecting distance to.
-        population_path_band (tuple): raster path/band for population value
-            to accumulate downstream
-        half_life (float): distance (m) to travel before value decays by
-            half.
-
-    Return:
-        None
-    """
-    cell_size = abs(geoprocessing.get_raster_info(
-        flow_dir_mfd_path_band[0])['cell_size'][0])
-    decay_rate = 1-0.5**(cell_size/half_life)
-    routing.distance_to_channel_mfd(
-        flow_dir_mfd_path_band, outlet_path_band, target_beneficiaries_path,
-        weight_raster_path_band=population_path_band,
-        distance_decay_rate=decay_rate)
 
 
 if __name__ == '__main__':
