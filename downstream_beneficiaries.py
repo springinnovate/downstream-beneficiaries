@@ -9,7 +9,6 @@ import os
 import pathlib
 import shutil
 import sqlite3
-import subprocess
 import threading
 import time
 from inspect import signature
@@ -20,9 +19,8 @@ from osgeo import gdal
 from osgeo import osr
 import ecoshard
 import numpy
-import pygeoprocessing
-import pygeoprocessing.geoprocessing
-import pygeoprocessing.routing
+from ecoshard import geoprocessing
+from ecoshard.geoprocessing import routing
 import taskgraph
 
 gdal.SetCacheMax(2**27)
@@ -35,7 +33,7 @@ logging.basicConfig(
         '%(name)s [%(funcName)s:%(lineno)d] %(message)s'))
 LOGGER = logging.getLogger(__name__)
 logging.getLogger('taskgraph').setLevel(logging.WARN)
-logging.getLogger('pygeoprocessing').setLevel(logging.WARN)
+logging.getLogger('geoprocessing').setLevel(logging.WARN)
 
 FA_THRESHOLD = 10000
 
@@ -120,10 +118,10 @@ def _calculate_stream_layer(
         outlet_raster_path, half_life, target_stream_raster_path):
     """Calculate a stream layer and merge into outlet raster."""
     nodata = -1
-    pixel_size = pygeoprocessing.get_raster_info(
+    pixel_size = geoprocessing.get_raster_info(
         flow_accum_raster_path)['pixel_size'][0]
     half_life = .5**(pixel_size/half_life)
-    pygeoprocessing.new_raster_from_base(
+    geoprocessing.new_raster_from_base(
         flow_accum_raster_path, target_stream_raster_path, gdal.GDT_Float32,
         [nodata], fill_value_list=[half_life])
 
@@ -131,11 +129,11 @@ def _calculate_stream_layer(
     # stream_raster_path = os.path.join(
     #     directory, f'stream_{os.path.basename(target_stream_raster_path)}')
 
-    # pygeoprocessing.routing.extract_streams_mfd(
+    # routing.extract_streams_mfd(
     #     (flow_accum_raster_path, 1), (flow_dir_mfd_raster_path, 1),
     #     fa_threshold, stream_raster_path)
 
-    # stream_nodata = pygeoprocessing.get_raster_info(
+    # stream_nodata = geoprocessing.get_raster_info(
     #     stream_raster_path)['nodata'][0]
 
     # def scale_and_merge(stream_array, outlet):
@@ -147,7 +145,7 @@ def _calculate_stream_layer(
     #     result[outlet == 1] = scale_value
     #     return result
 
-    # pygeoprocessing.raster_calculator(
+    # geoprocessing.raster_calculator(
     #     [(stream_raster_path, 1), (outlet_raster_path, 1)],
     #     scale_and_merge, target_stream_raster_path, gdal.GDT_Float32,
     #     nodata)
@@ -158,10 +156,10 @@ def _warp_and_wgs84_area_scale(
         interpolation_alg, clip_bb, watershed_vector_path,
         mask_vector_where_filter,
         working_dir):
-    base_raster_info = pygeoprocessing.get_raster_info(base_raster_path)
-    model_raster_info = pygeoprocessing.get_raster_info(model_raster_path)
+    base_raster_info = geoprocessing.get_raster_info(base_raster_path)
+    model_raster_info = geoprocessing.get_raster_info(model_raster_path)
     clipped_base_path = '%s_clip%s' % os.path.splitext(target_raster_path)
-    pygeoprocessing.warp_raster(
+    geoprocessing.warp_raster(
         base_raster_path, base_raster_info['pixel_size'],
         clipped_base_path, 'near',
         target_bb=clip_bb,
@@ -172,9 +170,9 @@ def _warp_and_wgs84_area_scale(
         working_dir=working_dir)
 
     lat_min, lat_max = clip_bb[1], clip_bb[3]
-    _, n_rows = pygeoprocessing.get_raster_info(
+    _, n_rows = geoprocessing.get_raster_info(
         clipped_base_path)['raster_size']
-    m2_area_per_lat = pygeoprocessing.geoprocessing._create_latitude_m2_area_column(
+    m2_area_per_lat = geoprocessing.geoprocessing._create_latitude_m2_area_column(
         lat_min, lat_max, n_rows)
 
     def _mult_op(base_array, base_nodata, scale, datatype):
@@ -195,14 +193,14 @@ def _warp_and_wgs84_area_scale(
     # the pixel area in the wgs84 units divided by the area of the
     # original pixel
     base_nodata = base_raster_info['nodata'][0]
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(clipped_base_path, 1), (base_nodata, 'raw'),
          base_pixel_area_m2/m2_area_per_lat,
          (numpy.float32, 'raw')], _mult_op,
         scaled_raster_path,
         gdal.GDT_Float32, base_nodata)
 
-    pygeoprocessing.warp_raster(
+    geoprocessing.warp_raster(
         scaled_raster_path, model_raster_info['pixel_size'],
         target_raster_path, 'near',
         target_projection_wkt=model_raster_info['projection_wkt'],
@@ -227,7 +225,7 @@ def _create_outlet_raster(
     Return:
         None.
     """
-    pygeoprocessing.new_raster_from_base(
+    geoprocessing.new_raster_from_base(
         base_raster_path, target_outlet_raster_path, gdal.GDT_Byte,
         [0])
 
@@ -250,7 +248,7 @@ def _create_outlet_raster(
 
 def _mask_raster(base_raster_path, mask_raster_path, target_raster_path):
     """Mask base by mask."""
-    base_nodata = pygeoprocessing.get_raster_info(
+    base_nodata = geoprocessing.get_raster_info(
         base_raster_path)['nodata'][0]
 
     def _mask_op(base_array, mask_array):
@@ -260,7 +258,7 @@ def _mask_raster(base_raster_path, mask_raster_path, target_raster_path):
         result[valid_mask] = base_array[valid_mask]
         return result
 
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(base_raster_path, 1),
          (mask_raster_path, 1)], _mask_op,
         target_raster_path, gdal.GDT_Float32, base_nodata)
@@ -269,17 +267,17 @@ def _mask_raster(base_raster_path, mask_raster_path, target_raster_path):
 def normalize_by_raster_sum(
         raster_that_target_should_sum_to_path, base_raster_path, target_raster_path):
     """Normalize base by raster sum."""
-    raster_to_sum_nodata = pygeoprocessing.get_raster_info(
+    raster_to_sum_nodata = geoprocessing.get_raster_info(
         raster_that_target_should_sum_to_path)['nodata'][0]
     target_sum = 0.0
-    for _, data_block in pygeoprocessing.iterblocks((raster_that_target_should_sum_to_path, 1)):
+    for _, data_block in geoprocessing.iterblocks((raster_that_target_should_sum_to_path, 1)):
         valid_mask = ~numpy.isclose(data_block, raster_to_sum_nodata)
         target_sum += numpy.sum(data_block[valid_mask])
 
-    base_nodata = pygeoprocessing.get_raster_info(
+    base_nodata = geoprocessing.get_raster_info(
         base_raster_path)['nodata'][0]
     base_sum = 0.0
-    for _, data_block in pygeoprocessing.iterblocks((base_raster_path, 1)):
+    for _, data_block in geoprocessing.iterblocks((base_raster_path, 1)):
         valid_mask = ~numpy.isclose(data_block, base_nodata)
         base_sum += numpy.sum(data_block[valid_mask])
 
@@ -290,7 +288,7 @@ def normalize_by_raster_sum(
             result[valid_mask] = data_array[valid_mask]/base_sum*target_sum
         return result
 
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(base_raster_path, 1)], _div_by_sum,
         target_raster_path, gdal.GDT_Float32, base_nodata)
 
@@ -298,7 +296,7 @@ def normalize_by_raster_sum(
 def div_rasters(
         numerator_raster_path, denominator_raster_path, target_raster_path):
     """Normalize base by raster sum."""
-    numerator_nodata = pygeoprocessing.get_raster_info(
+    numerator_nodata = geoprocessing.get_raster_info(
         numerator_raster_path)['nodata'][0]
 
     def _div_op(numerator_array, denominator_array):
@@ -310,7 +308,7 @@ def div_rasters(
         result[valid_mask] = numerator_array[valid_mask]/denominator_array[valid_mask]
         return result
 
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(numerator_raster_path, 1), (denominator_raster_path, 1)], _div_op,
         target_raster_path, gdal.GDT_Float64, numerator_nodata)
 
@@ -318,8 +316,8 @@ def div_rasters(
 def _sum_raster(raster_path):
     """Return the sum of the raster."""
     running_sum = 0
-    nodata = pygeoprocessing.get_raster_info(raster_path)['nodata'][0]
-    for _, data_array in pygeoprocessing.iterblocks((raster_path, 1)):
+    nodata = geoprocessing.get_raster_info(raster_path)['nodata'][0]
+    for _, data_array in geoprocessing.iterblocks((raster_path, 1)):
         if nodata is not None:
             valid_mask = ~numpy.isclose(data_array, nodata)
         else:
@@ -333,7 +331,7 @@ def rescale_by_base(base_raster_path, new_raster_path, target_raster_path):
     base_sum = _sum_raster(base_raster_path)
     new_sum = _sum_raster(new_raster_path)
 
-    new_raster_info = pygeoprocessing.get_raster_info(new_raster_path)
+    new_raster_info = geoprocessing.get_raster_info(new_raster_path)
     new_nodata = new_raster_info['nodata'][0]
 
     def _mult_op(new_array, scale):
@@ -354,7 +352,7 @@ def rescale_by_base(base_raster_path, new_raster_path, target_raster_path):
     else:
         scale = base_sum / new_sum
 
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(new_raster_path, 1), (scale, 'raw')], _mult_op,
         target_raster_path, new_raster_info['datatype'],
         new_raster_info['nodata'][0])
@@ -410,12 +408,12 @@ def process_watershed(
 
     task_graph = taskgraph.TaskGraph(working_dir, -1)
 
-    watershed_info = pygeoprocessing.get_vector_info(watershed_vector_path)
+    watershed_info = geoprocessing.get_vector_info(watershed_vector_path)
 
     epsg_sr = osr.SpatialReference()
     epsg_sr.ImportFromEPSG(epsg_code)
 
-    target_watershed_bb = pygeoprocessing.transform_bounding_box(
+    target_watershed_bb = geoprocessing.transform_bounding_box(
         lat_lng_watershed_bb,
         watershed_info['projection_wkt'],
         epsg_sr.ExportToWkt())
@@ -431,7 +429,7 @@ def process_watershed(
         f'{", ".join([str(v) for v in watershed_fid_list])})')
     LOGGER.debug(mask_vector_where_filter)
     align_task = task_graph.add_task(
-        func=pygeoprocessing.align_and_resize_raster_stack,
+        func=geoprocessing.align_and_resize_raster_stack,
         args=(
             [dem_path, hab_path],
             [warped_dem_raster_path, warped_habitat_raster_path],
@@ -453,7 +451,7 @@ def process_watershed(
     if len(watershed_fid_list) == 1:
         LOGGER.debug(f'detect_lowest_drain_and_sink {job_id} at {working_dir}')
         get_drain_sink_pixel_task = task_graph.add_task(
-            func=pygeoprocessing.routing.detect_lowest_drain_and_sink,
+            func=routing.detect_lowest_drain_and_sink,
             args=((warped_dem_raster_path, 1),),
             store_result=True,
             dependent_task_list=[align_task],
@@ -474,7 +472,7 @@ def process_watershed(
         working_dir, f'{job_id}_filled_dem.tif')
     LOGGER.debug(f'fill_pits {job_id} at {working_dir}')
     fill_pits_task = task_graph.add_task(
-        func=pygeoprocessing.routing.fill_pits,
+        func=routing.fill_pits,
         args=(
             (warped_dem_raster_path, 1), filled_dem_raster_path),
         kwargs={
@@ -489,7 +487,7 @@ def process_watershed(
     flow_dir_mfd_raster_path = os.path.join(
         working_dir, f'{job_id}_flow_dir_mfd.tif')
     flow_dir_mfd_task = task_graph.add_task(
-        func=pygeoprocessing.routing.flow_dir_mfd,
+        func=routing.flow_dir_mfd,
         args=(
             (filled_dem_raster_path, 1), flow_dir_mfd_raster_path),
         kwargs={'working_dir': working_dir},
@@ -501,7 +499,7 @@ def process_watershed(
         working_dir, f'{job_id}_outlet_vector.gpkg')
     LOGGER.debug(f'detect_outlets {job_id} at {working_dir}')
     detect_outlets_task = task_graph.add_task(
-        func=pygeoprocessing.routing.detect_outlets,
+        func=routing.detect_outlets,
         args=((flow_dir_mfd_raster_path, 1), 'mfd', outlet_vector_path),
         dependent_task_list=[flow_dir_mfd_task],
         target_path_list=[outlet_vector_path],
@@ -522,7 +520,7 @@ def process_watershed(
     flow_accum_mfd_raster_path = os.path.join(
         working_dir, f'{job_id}_flow_accum_mfd.tif')
     flow_accum_mfd_task = task_graph.add_task(
-        func=pygeoprocessing.routing.flow_accumulation_mfd,
+        func=routing.flow_accumulation_mfd,
         args=(
             (flow_dir_mfd_raster_path, 1), flow_accum_mfd_raster_path),
         dependent_task_list=[flow_dir_mfd_task],
@@ -577,7 +575,7 @@ def process_watershed(
         LOGGER.debug(
             f'distance_to_channel_mfd {job_id} at {working_dir} {target_beneficiaries_path}')
         downstream_bene_task = task_graph.add_task(
-            func=pygeoprocessing.routing.distance_to_channel_mfd,
+            func=routing.distance_to_channel_mfd,
             args=(
                 (flow_dir_mfd_raster_path, 1), (outlet_raster_path, 1),
                 target_beneficiaries_path),
@@ -783,7 +781,7 @@ def stitch_worker(
                 f'about to stitch {n_buffered} into '
                 f'{target_stitch_raster_path}')
             start_time = time.time()
-            pygeoprocessing.stitch_rasters(
+            geoprocessing.stitch_rasters(
                 stitch_buffer_list, ['near']*n_buffered,
                 (target_stitch_raster_path, 1),
                 area_weight_m2_to_wgs84=True,
@@ -843,6 +841,7 @@ def main(prefix, hab_mask_url, watershed_ids=None):
         task_name='download and unzip dem')
 
     dem_tile_dir = os.path.join(dem_download_dir, 'global_dem_3s')
+    dem_tile_list = glob.glob(os.path.join(dem_tile_dir, '*.tif'))
     dem_vrt_path = os.path.join(
         dem_tile_dir,
         f'{os.path.basename(os.path.splitext(DEM_ZIP_URL)[0])}.vrt')
@@ -850,9 +849,8 @@ def main(prefix, hab_mask_url, watershed_ids=None):
 
     LOGGER.info('build vrt')
     task_graph.add_task(
-        func=subprocess.run,
-        args=(f'gdalbuildvrt {dem_vrt_path} {dem_tile_dir}/*.tif',),
-        kwargs={'shell': True, 'check': True},
+        func=_make_vrt,
+        args=(dem_tile_list, dem_vrt_path),
         target_path_list=[dem_vrt_path],
         dependent_task_list=[download_dem_task],
         task_name='build dem vrt')
@@ -1057,7 +1055,7 @@ def main(prefix, hab_mask_url, watershed_ids=None):
             LOGGER.info(
                 f'scheduling {job_id} of area {area} and {len(fid_list)} '
                 f'watersheds')
-            job_bb = pygeoprocessing.merge_bounding_box_list(
+            job_bb = geoprocessing.merge_bounding_box_list(
                 watershed_envelope_list, 'union')
 
             workspace_dir = os.path.join(WATERSHED_WORKSPACE_DIR, job_id)
@@ -1151,6 +1149,18 @@ def get_utm_zone(x, y):
     lat_code = 6 if y > 0 else 7
     epsg_code = int('32%d%02d' % (lat_code, utm_code))
     return epsg_code
+
+
+def _make_vrt(base_raster_path_list, target_vrt_path):
+    """Tile base list to target vrt."""
+    vrt_options = gdal.BuildVRTOptions(VRTNodata=-9999)
+    gdal.BuildVRT(
+        target_vrt_path, base_raster_path_list, options=vrt_options)
+    target_raster = gdal.OpenEx(target_vrt_path, gdal.OF_RASTER)
+    if target_raster is None:
+        raise RuntimeError(
+            f"didn't make VRT at {target_vrt_path}")
+    target_raster = None
 
 
 if __name__ == '__main__':
