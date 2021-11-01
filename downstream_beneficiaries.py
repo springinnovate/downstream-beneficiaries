@@ -27,7 +27,7 @@ gdal.SetCacheMax(2**27)
 
 logging.basicConfig(
     level=logging.DEBUG,
-    filename='log.out',
+    #filename='log.out',
     format=(
         '%(asctime)s (%(relativeCreated)d) %(processName)s %(levelname)s '
         '%(name)s [%(funcName)s:%(lineno)d] %(message)s'))
@@ -574,14 +574,13 @@ def process_watershed(
 
         LOGGER.debug(
             f'distance_to_channel_mfd {job_id} at {working_dir} {target_beneficiaries_path}')
+
         downstream_bene_task = task_graph.add_task(
-            func=routing.distance_to_channel_mfd,
+            func=_calc_distance_weighted_benficiaries,
             args=(
                 (flow_dir_mfd_raster_path, 1), (outlet_raster_path, 1),
+                (aligned_pop_raster_path, 1), bene_half_life,
                 target_beneficiaries_path),
-            kwargs={
-                'weight_raster_path_band': (aligned_pop_raster_path, 1),
-                'decay_raster_path_band': (stream_decay_raster_path, 1)},
             dependent_task_list=[
                 pop_warp_task, create_outlet_raster_task, flow_dir_mfd_task,
                 stream_decay_task],
@@ -1161,6 +1160,33 @@ def _make_vrt(base_raster_path_list, target_vrt_path):
         raise RuntimeError(
             f"didn't make VRT at {target_vrt_path}")
     target_raster = None
+
+
+def _calc_distance_weighted_benficiaries(
+        flow_dir_mfd_path_band, outlet_path_band, population_path_band,
+        half_life, target_beneficiaries_path):
+    """Calculate MFD weighted distance with decay.
+
+    Args:
+        flow_dir_mfd_path_band (tuple): raster path/band tuple for MFD flow
+            direction
+        outlet_path_band (tuple): raster path/band tuple for 0/1 outlets used
+            for detecting distance to.
+        population_path_band (tuple): raster path/band for population value
+            to accumulate downstream
+        half_life (float): distance (m) to travel before value decays by
+            half.
+
+    Return:
+        None
+    """
+    cell_size = abs(geoprocessing.get_raster_info(
+        flow_dir_mfd_path_band[0])['cell_size'][0])
+    decay_rate = 1-0.5**(cell_size/half_life)
+    routing.distance_to_channel_mfd(
+        flow_dir_mfd_path_band, outlet_path_band, target_beneficiaries_path,
+        weight_raster_path_band=population_path_band,
+        distance_decay_rate=decay_rate)
 
 
 if __name__ == '__main__':
