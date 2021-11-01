@@ -21,7 +21,7 @@ import ecoshard
 import numpy
 from ecoshard import geoprocessing
 from ecoshard.geoprocessing import routing
-import taskgraph
+from ecoshard import taskgraph
 
 gdal.SetCacheMax(2**27)
 
