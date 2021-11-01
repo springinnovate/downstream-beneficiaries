@@ -968,7 +968,7 @@ def main(prefix, hab_mask_url, watershed_ids=None):
         watershed_download_dir, 'watersheds_globe_HydroSHEDS_15arcseconds')
 
     watershed_worker_process_list = []
-    for _ in range(1): #multiprocessing.cpu_count()):
+    for _ in range(multiprocessing.cpu_count()):
         watershed_worker_process = threading.Thread(
             target=general_worker,
             args=(watershed_work_queue,))
