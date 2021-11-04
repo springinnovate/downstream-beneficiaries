@@ -103,8 +103,9 @@ POPULATION_RASTER_URL_MAP = {
 #HAB_MASK_URL = 'https://storage.googleapis.com/critical-natural-capital-ecoshards/habmasks/masked_all_nathab_esa2015_md5_50debbf5fba6dbdaabfccbc39a9b1670.tif'
 
 HAB_MASK_URL_MAP = {
-    'esa': 'https://storage.googleapis.com/ecoshard-root/ci_global_restoration/ESACCI-LC-L4-LCCS-Map-300m-P1Y-2020-v2.1.1_md5_2ed6285e6f8ec1e7e0b75309cc6d6f9f_hab_mask.tif',
-    'restoration': 'https://storage.googleapis.com/ecoshard-root/ci_global_restoration/restoration_pnv0.0001_on_ESA2020_clip_md5_93d43b6124c73cb5dc21698ea5f9c8f4_hab_mask.tif'
+    #'esa': 'https://storage.googleapis.com/ecoshard-root/ci_global_restoration/ESACCI-LC-L4-LCCS-Map-300m-P1Y-2020-v2.1.1_md5_2ed6285e6f8ec1e7e0b75309cc6d6f9f_hab_mask.tif',
+    #'restoration': 'https://storage.googleapis.com/ecoshard-root/ci_global_restoration/restoration_pnv0.0001_on_ESA2020_clip_md5_93d43b6124c73cb5dc21698ea5f9c8f4_hab_mask.tif'
+    'restoration_v2': 'https://storage.googleapis.com/ecoshard-root/ci_global_restoration/restoration_pnv0.0001_on_ESA2020_v2_md5_47613f8e4d340c92b2c481cc8080cc9d.tif',
 }
 
 WORKSPACE_DIR = 'workspace'
@@ -826,7 +827,7 @@ def main(prefix, hab_mask_url, watershed_ids=None):
     population_download_dir = os.path.join(
         WORKSPACE_DIR, 'population_rasters')
 
-    work_db_path = os.path.join(WORKSPACE_DIR, 'completed_fids.db')
+    work_db_path = os.path.join(WORKSPACE_DIR, f'{prefix}_completed_fids.db')
     LOGGER.info('fetch completed job set')
     completed_job_set = get_completed_job_id_set(work_db_path)
     LOGGER.info(f'there are {len(completed_job_set)} completed jobs so far')
@@ -1021,7 +1022,7 @@ def main(prefix, hab_mask_url, watershed_ids=None):
                 watershed_centroid.GetX(), watershed_centroid.GetY())
             if watershed_geom.Area() > 1 or watershed_ids:
                 # one degree grids or immediates get special treatment
-                job_id = (f'{watershed_basename}_{fid}_{epsg}', epsg)
+                job_id = (f'{prefix}_{watershed_basename}_{fid}_{epsg}', epsg)
                 watershed_fid_index[job_id][0] = [fid]
             else:
                 # clamp into 5 degree square
@@ -1029,7 +1030,7 @@ def main(prefix, hab_mask_url, watershed_ids=None):
                     int(v//5)*5 for v in (
                         watershed_centroid.GetX(), watershed_centroid.GetY())]
                 base_job_id = f'{watershed_basename}_{x}_{y}_{epsg}'
-                job_id = (f'{base_job_id}_{duplicate_job_index_map[base_job_id]}', epsg)
+                job_id = (f'{prefix}_{base_job_id}_{duplicate_job_index_map[base_job_id]}', epsg)
                 if len(watershed_fid_index[job_id][0]) > 1000:
                     duplicate_job_index_map[base_job_id] += 1
                     job_id = (f'{base_job_id}_{duplicate_job_index_map[base_job_id]}', epsg)
@@ -1063,7 +1064,8 @@ def main(prefix, hab_mask_url, watershed_ids=None):
             job_bb = geoprocessing.merge_bounding_box_list(
                 watershed_envelope_list, 'union')
 
-            workspace_dir = os.path.join(WATERSHED_WORKSPACE_DIR, job_id)
+            workspace_dir = os.path.join(
+                WATERSHED_WORKSPACE_DIR, job_id)
             watershed_work_queue.put((
                 process_watershed,
                 (job_id, watershed_path, fid_list, epsg, job_bb, dem_vrt_path,
