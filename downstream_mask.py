@@ -24,7 +24,8 @@ import numpy
 
 import ecoshard.geoprocessing as geoprocessing
 import ecoshard.geoprocessing.routing as routing
-import taskgraph
+from ecoshard import taskgraph
+
 
 gdal.SetCacheMax(2**27)
 
@@ -94,12 +95,12 @@ def apply_manager_autopatch():
 
 
 DEM_ZIP_URL = (
-    'https://storage.googleapis.com/global-invest-sdr-data/'
+    'https://storage.googleapis.com/ecoshard-root/key_datasets/'
     'global_dem_3s_md5_22d0c3809af491fa09d03002bdf09748.zip')
 WATERSHED_VECTOR_ZIP_URL = (
-    'https://storage.googleapis.com/ipbes-ndr-ecoshard-data/'
-    'watersheds_globe_HydroSHEDS_15arcseconds_blake2b_'
-    '14ac9c77d2076d51b0258fd94d9378d4.zip')
+    'https://storage.googleapis.com/ecoshard-root/key_datasets/'
+    'watersheds_globe_HydroSHEDS_15arcseconds_md5_'
+    'c6acf2762123bbd5de605358e733a304.zip')
 
 WORKSPACE_DIR = 'workspace'
 WATERSHED_WORKSPACE_DIR = os.path.join(WORKSPACE_DIR, 'watershed_workspace')
